@@ -1,0 +1,136 @@
+{
+  "users": [
+    {
+      "name": "chethan",
+      "email": "chethan@gmail.com",
+      "password": "chethan",
+      "mobile": "8095008238",
+      "id": "lfc3akq",
+      "pushToken": "ExponentPushToken[wJpn30EWXLa0h1WhjK3wjB]"
+    },
+    {
+      "name": "Arch",
+      "email": "arch@gmail.com",
+      "password": "archana",
+      "mobile": "8088950392",
+      "id": "benfrk0",
+      "pushToken": "ExponentPushToken[wJpn30EWXLa0h1WhjK3wjB]"
+    },
+    {
+      "name": "Alumunji🥹🥰❤️",
+      "mobile": "8722993217",
+      "id": "6ihxag4"
+    },
+    {
+      "name": "Amma👩‍👦👩‍👦",
+      "mobile": "8722206477",
+      "id": "j8owwg3"
+    },
+    {
+      "name": "Archana",
+      "mobile": "8548974146",
+      "id": "r618maw"
+    }
+  ],
+  "expenses": [
+    {
+      "title": "trip",
+      "amount": 84678,
+      "date": "2026-02-10T17:49:09.072Z",
+      "category": "General",
+      "paidBy": "benfrk0",
+      "splitType": "EQUAL",
+      "splitBetween": [
+        "benfrk0",
+        "lfc3akq"
+      ],
+      "createdBy": "benfrk0",
+      "id": "ckohsqs"
+    },
+    {
+      "title": "vhv",
+      "amount": 6838378,
+      "date": "2026-02-10T18:15:49.543Z",
+      "category": "Food",
+      "paidBy": "lfc3akq",
+      "splitType": "EQUAL",
+      "splitBetween": [
+        "lfc3akq",
+        "benfrk0"
+      ],
+      "createdBy": "benfrk0",
+      "id": "6thwrg1"
+    },
+    {
+      "title": "trip",
+      "amount": 5000,
+      "date": "2026-02-10T18:18:56.416Z",
+      "category": "General",
+      "paidBy": "benfrk0",
+      "splitType": "EQUAL",
+      "splitBetween": [
+        "benfrk0",
+        "6ihxag4"
+      ],
+      "createdBy": "benfrk0",
+      "id": "ojfd2g4"
+    },
+    {
+      "title": "trip to mys",
+      "amount": 7800,
+      "date": "2026-02-10T18:20:05.325Z",
+      "category": "General",
+      "paidBy": "6ihxag4",
+      "splitType": "EQUAL",
+      "splitBetween": [
+        "benfrk0",
+        "6ihxag4"
+      ],
+      "createdBy": "benfrk0",
+      "id": "yw46zu8"
+    },
+    {
+      "title": "goa",
+      "amount": 5000,
+      "date": "2026-02-10T18:22:37.232Z",
+      "category": "Food",
+      "paidBy": "benfrk0",
+      "splitType": "EQUAL",
+      "splitBetween": [
+        "benfrk0",
+        "j8owwg3"
+      ],
+      "createdBy": "benfrk0",
+      "id": "psegmks"
+    },
+    {
+      "title": "Gchh",
+      "amount": 8658,
+      "date": "2026-02-10T18:33:31.103Z",
+      "category": "General",
+      "paidBy": "r618maw",
+      "splitType": "UNEQUAL",
+      "splitBetween": [
+        "benfrk0",
+        "r618maw",
+        "6ihxag4"
+      ],
+      "splitDetails": [
+        {
+          "userId": "benfrk0",
+          "amount": 1500
+        },
+        {
+          "userId": "r618maw",
+          "amount": 2158
+        },
+        {
+          "userId": "6ihxag4",
+          "amount": 5000
+        }
+      ],
+      "createdBy": "benfrk0",
+      "id": "n45ykb9"
+    }
+  ]
+}
