@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Group } from './group.entity';
@@ -49,6 +49,7 @@ export class GroupsService implements OnModuleInit {
             const mergedDb = {
                 ...diskDb,
                 groups: this.db.groups,
+                expenses: this.db.expenses,
             };
             fs.writeFileSync(this.dbPath, JSON.stringify(mergedDb, null, 2), 'utf8');
         } catch (error) {
@@ -95,5 +96,78 @@ export class GroupsService implements OnModuleInit {
         this.db.groups.push(newGroup);
         this.saveDb();
         return newGroup;
+    }
+
+    async update(
+        id: string,
+        data: Partial<Pick<Group, 'name' | 'members'>> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
+        userId?: string,
+    ): Promise<Group> {
+        const group = this.db.groups.find(item => item.id === id);
+        if (!group) {
+            throw new NotFoundException('Group not found');
+        }
+
+        if (!userId || group.createdBy !== userId) {
+            throw new ForbiddenException('Only group creator can edit this group');
+        }
+
+        if (typeof data.name === 'string') {
+            const trimmedName = data.name.trim();
+            if (!trimmedName) {
+                throw new BadRequestException('Group name should not be empty');
+            }
+            group.name = trimmedName;
+        }
+
+        const nextMembers = Array.isArray(data.members)
+            ? [...data.members]
+            : [...group.members];
+
+        if (data.invitedUsers && data.invitedUsers.length > 0) {
+            for (const invitedUserData of data.invitedUsers) {
+                try {
+                    const invitedUser = await this.usersService.createInvitedUser({
+                        name: invitedUserData.name,
+                        mobile: invitedUserData.mobile,
+                    });
+                    if (!nextMembers.includes(invitedUser.id)) {
+                        nextMembers.push(invitedUser.id);
+                    }
+                } catch (error) {
+                    console.error('Error creating invited user during group update:', error);
+                }
+            }
+        }
+
+        group.members = Array.from(new Set(nextMembers.filter(Boolean)));
+        this.saveDb();
+        return group;
+    }
+
+    async remove(id: string, userId?: string): Promise<{ success: true; deletedGroupId: string; deletedExpensesCount: number }> {
+        const groupIndex = this.db.groups.findIndex(group => group.id === id);
+        if (groupIndex === -1) {
+            throw new NotFoundException('Group not found');
+        }
+
+        const group = this.db.groups[groupIndex];
+        if (!userId || group.createdBy !== userId) {
+            throw new ForbiddenException('Only group creator can delete this group');
+        }
+
+        this.db.groups.splice(groupIndex, 1);
+
+        const previousExpenseCount = this.db.expenses.length;
+        this.db.expenses = this.db.expenses.filter(expense => expense.groupId !== id);
+        const deletedExpensesCount = previousExpenseCount - this.db.expenses.length;
+
+        this.saveDb();
+
+        return {
+            success: true,
+            deletedGroupId: id,
+            deletedExpensesCount,
+        };
     }
 }

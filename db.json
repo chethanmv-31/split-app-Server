@@ -34,145 +34,115 @@
   ],
   "expenses": [
     {
-      "title": "trip",
-      "amount": 84678,
-      "date": "2026-02-10T17:49:09.072Z",
+      "title": "New home",
+      "amount": 42000,
+      "date": "2026-02-11T19:17:38.468Z",
       "category": "General",
       "paidBy": "benfrk0",
       "splitType": "EQUAL",
       "splitBetween": [
         "benfrk0",
-        "lfc3akq"
-      ],
-      "createdBy": "benfrk0",
-      "id": "ckohsqs"
-    },
-    {
-      "title": "vhv",
-      "amount": 6838378,
-      "date": "2026-02-10T18:15:49.543Z",
-      "category": "Food",
-      "paidBy": "lfc3akq",
-      "splitType": "EQUAL",
-      "splitBetween": [
+        "6ihxag4",
         "lfc3akq",
-        "benfrk0"
+        "j8owwg3"
       ],
       "createdBy": "benfrk0",
-      "id": "6thwrg1"
+      "id": "j22cy1r"
     },
     {
-      "title": "trip",
-      "amount": 5000,
-      "date": "2026-02-10T18:18:56.416Z",
+      "title": "Nee group ",
+      "amount": 2400,
+      "date": "2026-02-11T19:18:27.485Z",
       "category": "General",
       "paidBy": "benfrk0",
       "splitType": "EQUAL",
       "splitBetween": [
         "benfrk0",
+        "lfc3akq",
         "6ihxag4"
       ],
       "createdBy": "benfrk0",
-      "id": "ojfd2g4"
+      "id": "uj42skf"
     },
     {
-      "title": "trip to mys",
-      "amount": 7800,
-      "date": "2026-02-10T18:20:05.325Z",
+      "title": "Group expenses ",
+      "amount": 4000,
+      "date": "2026-02-11T19:19:03.084Z",
+      "category": "General",
+      "paidBy": "benfrk0",
+      "splitType": "EQUAL",
+      "splitBetween": [
+        "benfrk0",
+        "r618maw",
+        "6ihxag4",
+        "lfc3akq"
+      ],
+      "groupId": "f71zrkf",
+      "createdBy": "benfrk0",
+      "id": "5uj78hb"
+    },
+    {
+      "title": "New outside",
+      "amount": 120,
+      "date": "2026-02-11T19:19:31.072Z",
       "category": "General",
       "paidBy": "6ihxag4",
       "splitType": "EQUAL",
       "splitBetween": [
         "benfrk0",
-        "6ihxag4"
+        "6ihxag4",
+        "lfc3akq"
       ],
       "createdBy": "benfrk0",
-      "id": "yw46zu8"
+      "id": "b8xc1hk"
     },
     {
-      "title": "goa",
-      "amount": 5000,
-      "date": "2026-02-10T18:22:37.232Z",
-      "category": "Food",
-      "paidBy": "benfrk0",
-      "splitType": "EQUAL",
-      "splitBetween": [
-        "benfrk0",
-        "j8owwg3"
-      ],
-      "createdBy": "benfrk0",
-      "id": "psegmks"
-    },
-    {
-      "title": "Gchh",
-      "amount": 8658,
-      "date": "2026-02-10T18:33:31.103Z",
+      "title": "Simply",
+      "amount": 2500,
+      "date": "2026-02-11T19:20:08.917Z",
       "category": "General",
-      "paidBy": "r618maw",
-      "splitType": "UNEQUAL",
+      "paidBy": "lfc3akq",
+      "splitType": "EQUAL",
       "splitBetween": [
         "benfrk0",
         "r618maw",
-        "6ihxag4"
+        "6ihxag4",
+        "lfc3akq"
       ],
-      "splitDetails": [
-        {
-          "userId": "benfrk0",
-          "amount": 1500
-        },
-        {
-          "userId": "r618maw",
-          "amount": 2158
-        },
-        {
-          "userId": "6ihxag4",
-          "amount": 5000
-        }
-      ],
+      "groupId": "f71zrkf",
       "createdBy": "benfrk0",
-      "id": "n45ykb9"
+      "id": "b6s66w3"
     },
     {
-      "title": "Mysore",
-      "amount": 1250,
-      "date": "2026-02-11T17:13:36.978Z",
-      "category": "Travel",
-      "paidBy": "benfrk0",
+      "title": "Expenses ",
+      "amount": 250,
+      "date": "2026-02-11T19:23:40.198Z",
+      "category": "General",
+      "paidBy": "6ihxag4",
       "splitType": "EQUAL",
       "splitBetween": [
         "benfrk0",
-        "lfc3akq",
+        "r618maw",
         "6ihxag4",
-        "j8owwg3"
+        "lfc3akq"
       ],
-      "groupId": "zs4bgp8",
+      "groupId": "f71zrkf",
       "createdBy": "benfrk0",
-      "id": "6tq0nug"
+      "id": "x571wun"
     }
   ],
   "groups": [
     {
-      "id": "0igfy7y",
-      "name": "Trip",
+      "id": "f71zrkf",
+      "name": "New groou",
       "createdBy": "benfrk0",
       "members": [
         "benfrk0",
-        "lfc3akq",
-        "j8owwg3"
-      ],
-      "createdAt": "2026-02-11T16:30:04.487Z"
-    },
-    {
-      "id": "zs4bgp8",
-      "name": "Group 11 Feb 2026",
-      "createdBy": "benfrk0",
-      "members": [
-        "benfrk0",
-        "lfc3akq",
+        "r618maw",
         "6ihxag4",
-        "j8owwg3"
+        "lfc3akq"
       ],
-      "createdAt": "2026-02-11T16:33:46.273Z"
+      "createdAt": "2026-02-11T18:08:34.468Z"
     }
   ]
 }
