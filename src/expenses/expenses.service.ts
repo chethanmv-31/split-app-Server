@@ -142,4 +142,8 @@ export class ExpensesService implements OnModuleInit {
     async findByUserId(userId: string): Promise<Expense[]> {
         return this.db.expenses.filter(e => e.paidBy === userId || e.splitBetween.includes(userId));
     }
+
+    async findByGroupId(groupId: string): Promise<Expense[]> {
+        return this.db.expenses.filter(e => e.groupId === groupId);
+    }
 }

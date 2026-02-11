@@ -7,7 +7,10 @@ export class ExpensesController {
     constructor(private readonly expensesService: ExpensesService) { }
 
     @Get()
-    async findAll(@Query('userId') userId?: string) {
+    async findAll(@Query('userId') userId?: string, @Query('groupId') groupId?: string) {
+        if (groupId) {
+            return this.expensesService.findByGroupId(groupId);
+        }
         if (userId) {
             return this.expensesService.findByUserId(userId);
         }
