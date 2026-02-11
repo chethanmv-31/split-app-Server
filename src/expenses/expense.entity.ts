@@ -9,6 +9,7 @@ export interface Expense {
     amount: number;
     date: string;
     category: string;
+    groupId?: string;
     paidBy: string; // User ID
     splitType: 'EQUAL' | 'UNEQUAL';
     splitBetween: string[]; // Array of User IDs
