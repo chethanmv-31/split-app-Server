@@ -24,7 +24,11 @@ export class AuthService {
         };
 
         const message = `Your Split App OTP is: ${otp}. Valid for 5 minutes.`;
-        await this.smsService.sendSms(mobile, message);
+        const smsSent = await this.smsService.sendSms(mobile, message);
+        if (!smsSent) {
+            delete this.otpStore[mobile];
+            throw new BadRequestException('Failed to send OTP SMS. Please verify Twilio settings and number format.');
+        }
 
         console.log(`\n[OTP SERVICE] Generated OTP for ${mobile}: ${otp}\n`);
 
