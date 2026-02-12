@@ -14,6 +14,7 @@ export interface User {
     email?: string;
     password?: string;
     mobile?: string;
+    avatar?: string;
     pushToken?: string;
     [key: string]: string | undefined;
 }
@@ -179,5 +180,41 @@ export class UsersService implements OnModuleInit {
             return user;
         }
         return undefined;
+    }
+
+    async updateUser(id: string, updates: Partial<Omit<User, 'id'>>): Promise<User | undefined> {
+        const user = await this.findOneById(id);
+        if (!user) {
+            return undefined;
+        }
+
+        const normalizedEmail = updates.email?.trim().toLowerCase();
+        if (normalizedEmail) {
+            const existingUser = this.db.users.find(
+                (u: User) => u.id !== id && u.email?.trim().toLowerCase() === normalizedEmail
+            );
+            if (existingUser) {
+                throw new Error('User with this email already exists');
+            }
+            user.email = normalizedEmail;
+        } else if (updates.email === '') {
+            user.email = undefined;
+        }
+
+        if (typeof updates.name === 'string') {
+            user.name = updates.name.trim();
+        }
+
+        if (typeof updates.mobile === 'string') {
+            const normalizedMobile = normalizePhone(updates.mobile);
+            user.mobile = normalizedMobile || undefined;
+        }
+
+        if (typeof updates.avatar === 'string') {
+            user.avatar = updates.avatar.trim() || undefined;
+        }
+
+        this.saveDb();
+        return user;
     }
 }
