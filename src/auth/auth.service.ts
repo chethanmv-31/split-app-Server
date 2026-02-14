@@ -9,6 +9,7 @@ import { randomInt } from 'crypto';
 import { User, UsersService } from '../users/users.service';
 import { SmsService } from './sms.service';
 import { JwtTokenService } from './jwt-token.service';
+import { DbService } from '../common/db/db.service';
 
 export interface AuthResult {
     success: true;
@@ -19,14 +20,46 @@ export interface AuthResult {
 @Injectable()
 export class AuthService {
     private otpStore: Record<string, { otp: string; expires: number; attempts: number }> = {};
-    private readonly loginAttempts = new Map<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>();
-    private readonly otpSendAttempts = new Map<string, { count: number; firstAttemptAt: number }>();
+
+    private typeSafeAuthState() {
+        return {
+            loginAttempts: {} as Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>,
+            otpSendAttempts: {} as Record<string, { count: number; firstAttemptAt: number }>,
+        };
+    }
 
     constructor(
         private usersService: UsersService,
         private smsService: SmsService,
         private jwtTokenService: JwtTokenService,
+        private dbService: DbService,
     ) { }
+
+    private async updateAuthState<T>(mutator: (authState: {
+        loginAttempts: Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>;
+        otpSendAttempts: Record<string, { count: number; firstAttemptAt: number }>;
+    }) => T | Promise<T>): Promise<T> {
+        return this.dbService.updateDb(async (db) => {
+            if (!db.authState || typeof db.authState !== 'object') {
+                db.authState = this.typeSafeAuthState();
+            }
+
+            if (!db.authState.loginAttempts || typeof db.authState.loginAttempts !== 'object') {
+                db.authState.loginAttempts = {};
+            }
+
+            if (!db.authState.otpSendAttempts || typeof db.authState.otpSendAttempts !== 'object') {
+                db.authState.otpSendAttempts = {};
+            }
+
+            const authState = db.authState as {
+                loginAttempts: Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>;
+                otpSendAttempts: Record<string, { count: number; firstAttemptAt: number }>;
+            };
+
+            return mutator(authState);
+        });
+    }
 
     private sanitizeUser(user: User): Omit<User, 'password' | 'passwordHash'> {
         const { password, passwordHash, ...safeUser } = user as User & { passwordHash?: string };
@@ -47,88 +80,98 @@ export class AuthService {
         };
     }
 
-    private assertLoginAttemptAllowed(identifier: string): void {
+    private async assertLoginAttemptAllowed(identifier: string): Promise<void> {
         const now = Date.now();
-        const record = this.loginAttempts.get(identifier);
-        if (!record?.lockedUntil) {
-            return;
-        }
+        await this.updateAuthState((authState) => {
+            const record = authState.loginAttempts[identifier];
+            if (!record?.lockedUntil) {
+                return;
+            }
 
-        if (record.lockedUntil > now) {
-            throw new HttpException('Too many failed login attempts. Try again later.', HttpStatus.TOO_MANY_REQUESTS);
-        }
+            if (record.lockedUntil > now) {
+                throw new HttpException('Too many failed login attempts. Try again later.', HttpStatus.TOO_MANY_REQUESTS);
+            }
 
-        this.loginAttempts.delete(identifier);
+            delete authState.loginAttempts[identifier];
+        });
     }
 
-    private registerLoginFailure(identifier: string): void {
+    private async registerLoginFailure(identifier: string): Promise<void> {
         const now = Date.now();
         const windowMs = 15 * 60 * 1000;
         const lockMs = 10 * 60 * 1000;
         const maxAttempts = 5;
-        const existing = this.loginAttempts.get(identifier);
 
-        if (!existing || now - existing.firstAttemptAt > windowMs) {
-            this.loginAttempts.set(identifier, { count: 1, firstAttemptAt: now });
-            return;
-        }
+        await this.updateAuthState((authState) => {
+            const existing = authState.loginAttempts[identifier];
 
-        const nextCount = existing.count + 1;
-        if (nextCount >= maxAttempts) {
-            this.loginAttempts.set(identifier, {
+            if (!existing || now - existing.firstAttemptAt > windowMs) {
+                authState.loginAttempts[identifier] = { count: 1, firstAttemptAt: now };
+                return;
+            }
+
+            const nextCount = existing.count + 1;
+            if (nextCount >= maxAttempts) {
+                authState.loginAttempts[identifier] = {
+                    count: nextCount,
+                    firstAttemptAt: existing.firstAttemptAt,
+                    lockedUntil: now + lockMs,
+                };
+                return;
+            }
+
+            authState.loginAttempts[identifier] = {
                 count: nextCount,
                 firstAttemptAt: existing.firstAttemptAt,
-                lockedUntil: now + lockMs,
-            });
-            return;
-        }
-
-        this.loginAttempts.set(identifier, {
-            count: nextCount,
-            firstAttemptAt: existing.firstAttemptAt,
+            };
         });
     }
 
-    private clearLoginFailures(identifier: string): void {
-        this.loginAttempts.delete(identifier);
+    private async clearLoginFailures(identifier: string): Promise<void> {
+        await this.updateAuthState((authState) => {
+            delete authState.loginAttempts[identifier];
+        });
     }
 
-    private assertOtpSendAllowed(mobile: string): void {
+    private async assertOtpSendAllowed(mobile: string): Promise<void> {
         const now = Date.now();
         const windowMs = 10 * 60 * 1000;
         const maxRequests = 3;
-        const existing = this.otpSendAttempts.get(mobile);
-        if (!existing || now - existing.firstAttemptAt > windowMs) {
-            this.otpSendAttempts.set(mobile, { count: 1, firstAttemptAt: now });
-            return;
-        }
 
-        if (existing.count >= maxRequests) {
-            throw new HttpException('Too many OTP requests. Try again later.', HttpStatus.TOO_MANY_REQUESTS);
-        }
+        await this.updateAuthState((authState) => {
+            const existing = authState.otpSendAttempts[mobile];
+            if (!existing || now - existing.firstAttemptAt > windowMs) {
+                authState.otpSendAttempts[mobile] = { count: 1, firstAttemptAt: now };
+                return;
+            }
 
-        this.otpSendAttempts.set(mobile, {
-            count: existing.count + 1,
-            firstAttemptAt: existing.firstAttemptAt,
+            if (existing.count >= maxRequests) {
+                throw new HttpException('Too many OTP requests. Try again later.', HttpStatus.TOO_MANY_REQUESTS);
+            }
+
+            authState.otpSendAttempts[mobile] = {
+                count: existing.count + 1,
+                firstAttemptAt: existing.firstAttemptAt,
+            };
         });
     }
 
     async login(email: string, password: string): Promise<AuthResult> {
         const normalizedEmail = email.trim().toLowerCase();
-        this.assertLoginAttemptAllowed(normalizedEmail);
+        await this.assertLoginAttemptAllowed(normalizedEmail);
 
         const user = await this.usersService.validateCredentials(email, password);
         if (!user) {
-            this.registerLoginFailure(normalizedEmail);
+            await this.registerLoginFailure(normalizedEmail);
             throw new UnauthorizedException('Invalid email or password');
         }
 
-        this.clearLoginFailures(normalizedEmail);
+        await this.clearLoginFailures(normalizedEmail);
         return this.buildAuthResult(user);
     }
 
     async sendOtp(mobile: string) {
-        this.assertOtpSendAllowed(mobile);
+        await this.assertOtpSendAllowed(mobile);
 
         const user = await this.usersService.findOneByMobile(mobile);
         if (!user) {

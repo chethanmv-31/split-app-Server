@@ -6,6 +6,10 @@ export interface AppDb {
   users: any[];
   expenses: any[];
   groups: any[];
+  authState?: {
+    loginAttempts?: Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>;
+    otpSendAttempts?: Record<string, { count: number; firstAttemptAt: number }>;
+  };
   [key: string]: any;
 }
 
@@ -13,7 +17,12 @@ export interface AppDb {
 export class DbService {
   private readonly logger = new Logger(DbService.name);
   private readonly dbPath = path.join(process.cwd(), 'db.json');
-  private readonly defaultDb: AppDb = { users: [], expenses: [], groups: [] };
+  private readonly defaultDb: AppDb = {
+    users: [],
+    expenses: [],
+    groups: [],
+    authState: { loginAttempts: {}, otpSendAttempts: {} },
+  };
   private writeQueue: Promise<void> = Promise.resolve();
 
   private async ensureDb(): Promise<AppDb> {
@@ -34,6 +43,16 @@ export class DbService {
       users: Array.isArray(parsed.users) ? parsed.users : [],
       expenses: Array.isArray(parsed.expenses) ? parsed.expenses : [],
       groups: Array.isArray(parsed.groups) ? parsed.groups : [],
+      authState: {
+        loginAttempts:
+          parsed?.authState && typeof parsed.authState.loginAttempts === 'object'
+            ? parsed.authState.loginAttempts
+            : {},
+        otpSendAttempts:
+          parsed?.authState && typeof parsed.authState.otpSendAttempts === 'object'
+            ? parsed.authState.otpSendAttempts
+            : {},
+      },
     };
   }
 
