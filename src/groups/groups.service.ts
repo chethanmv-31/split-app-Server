@@ -1,73 +1,31 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Group } from './group.entity';
 import { UsersService } from '../users/users.service';
+import { DbService } from '../common/db/db.service';
 
 @Injectable()
-export class GroupsService implements OnModuleInit {
-    private readonly dbPath = path.join(process.cwd(), 'db.json');
-    private db: { users: any[]; expenses: any[]; groups: Group[] } = { users: [], expenses: [], groups: [] };
+export class GroupsService {
+    constructor(
+        private readonly usersService: UsersService,
+        private readonly dbService: DbService,
+    ) { }
 
-    constructor(private readonly usersService: UsersService) { }
-
-    onModuleInit() {
-        this.loadDb();
+    async findAll(userId: string): Promise<Group[]> {
+        const db = await this.dbService.readDb();
+        return (db.groups as Group[]).filter(g => g.createdBy === userId || g.members.includes(userId));
     }
 
-    private loadDb() {
-        try {
-            if (fs.existsSync(this.dbPath)) {
-                const data = fs.readFileSync(this.dbPath, 'utf8');
-                const parsed = JSON.parse(data);
-                this.db = {
-                    users: parsed.users || [],
-                    expenses: parsed.expenses || [],
-                    groups: parsed.groups || [],
-                };
-            } else {
-                this.saveDb();
-            }
-        } catch (error) {
-            console.error('Error loading db.json:', error);
-            this.db = { users: [], expenses: [], groups: [] };
-        }
-    }
-
-    private saveDb() {
-        try {
-            let diskDb: any = { users: [], expenses: [], groups: [] };
-            if (fs.existsSync(this.dbPath)) {
-                try {
-                    const data = fs.readFileSync(this.dbPath, 'utf8');
-                    diskDb = JSON.parse(data);
-                } catch (e) {
-                    console.error('Error reading db.json before save:', e);
-                }
-            }
-
-            const mergedDb = {
-                ...diskDb,
-                groups: this.db.groups,
-                expenses: this.db.expenses,
-            };
-            fs.writeFileSync(this.dbPath, JSON.stringify(mergedDb, null, 2), 'utf8');
-        } catch (error) {
-            console.error('Error saving db.json:', error);
-        }
-    }
-
-    async findAll(userId?: string): Promise<Group[]> {
-        if (!userId) return this.db.groups;
-        return this.db.groups.filter(g => g.createdBy === userId || g.members.includes(userId));
-    }
-
-    async create(data: Omit<Group, 'id' | 'createdAt'> & { invitedUsers?: Array<{ name: string; mobile?: string }> }): Promise<Group> {
+    async create(
+        data: Omit<Group, 'id' | 'createdAt' | 'createdBy'> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
+        userId: string,
+    ): Promise<Group> {
         const trimmedName = data.name?.trim();
         if (!trimmedName) {
             throw new BadRequestException('Group name should not be empty');
         }
 
+        const memberIds = [...data.members];
         if (data.invitedUsers && data.invitedUsers.length > 0) {
             for (const invitedUserData of data.invitedUsers) {
                 try {
@@ -75,8 +33,8 @@ export class GroupsService implements OnModuleInit {
                         name: invitedUserData.name,
                         mobile: invitedUserData.mobile,
                     });
-                    if (!data.members.includes(invitedUser.id)) {
-                        data.members.push(invitedUser.id);
+                    if (!memberIds.includes(invitedUser.id)) {
+                        memberIds.push(invitedUser.id);
                     }
                 } catch (error) {
                     console.error('Error creating invited user during group creation:', error);
@@ -84,90 +42,111 @@ export class GroupsService implements OnModuleInit {
             }
         }
 
-        const uniqueMembers = Array.from(new Set(data.members));
+        if (!memberIds.includes(userId)) {
+            memberIds.push(userId);
+        }
+
+        const uniqueMembers = Array.from(new Set(memberIds));
         const newGroup: Group = {
-            id: Math.random().toString(36).substring(2, 9),
+            id: randomUUID(),
             name: trimmedName,
-            createdBy: data.createdBy,
+            createdBy: userId,
             members: uniqueMembers,
             createdAt: new Date().toISOString(),
         };
 
-        this.db.groups.push(newGroup);
-        this.saveDb();
+        await this.dbService.updateDb((db) => {
+            (db.groups as Group[]).push(newGroup);
+        });
+
         return newGroup;
     }
 
     async update(
         id: string,
         data: Partial<Pick<Group, 'name' | 'members'>> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
-        userId?: string,
+        userId: string,
     ): Promise<Group> {
-        const group = this.db.groups.find(item => item.id === id);
-        if (!group) {
-            throw new NotFoundException('Group not found');
-        }
-
-        if (!userId || group.createdBy !== userId) {
-            throw new ForbiddenException('Only group creator can edit this group');
-        }
-
-        if (typeof data.name === 'string') {
-            const trimmedName = data.name.trim();
-            if (!trimmedName) {
-                throw new BadRequestException('Group name should not be empty');
-            }
-            group.name = trimmedName;
-        }
-
-        const nextMembers = Array.isArray(data.members)
-            ? [...data.members]
-            : [...group.members];
-
         if (data.invitedUsers && data.invitedUsers.length > 0) {
+            const pendingInvitedUsers: string[] = [];
             for (const invitedUserData of data.invitedUsers) {
                 try {
                     const invitedUser = await this.usersService.createInvitedUser({
                         name: invitedUserData.name,
                         mobile: invitedUserData.mobile,
                     });
-                    if (!nextMembers.includes(invitedUser.id)) {
-                        nextMembers.push(invitedUser.id);
-                    }
+                    pendingInvitedUsers.push(invitedUser.id);
                 } catch (error) {
                     console.error('Error creating invited user during group update:', error);
                 }
             }
+            data.members = [...(data.members || []), ...pendingInvitedUsers];
         }
 
-        group.members = Array.from(new Set(nextMembers.filter(Boolean)));
-        this.saveDb();
-        return group;
+        let updatedGroup!: Group;
+        await this.dbService.updateDb((db) => {
+            const groups = db.groups as Group[];
+            const group = groups.find(item => item.id === id);
+            if (!group) {
+                throw new NotFoundException('Group not found');
+            }
+
+            if (group.createdBy !== userId) {
+                throw new ForbiddenException('Only group creator can edit this group');
+            }
+
+            if (typeof data.name === 'string') {
+                const trimmedName = data.name.trim();
+                if (!trimmedName) {
+                    throw new BadRequestException('Group name should not be empty');
+                }
+                group.name = trimmedName;
+            }
+
+            const nextMembers = Array.isArray(data.members)
+                ? [...group.members, ...data.members]
+                : [...group.members];
+
+            if (!nextMembers.includes(group.createdBy)) {
+                nextMembers.push(group.createdBy);
+            }
+
+            group.members = Array.from(new Set(nextMembers.filter(Boolean)));
+            updatedGroup = group;
+        });
+
+        return updatedGroup;
     }
 
-    async remove(id: string, userId?: string): Promise<{ success: true; deletedGroupId: string; deletedExpensesCount: number }> {
-        const groupIndex = this.db.groups.findIndex(group => group.id === id);
-        if (groupIndex === -1) {
-            throw new NotFoundException('Group not found');
-        }
+    async remove(id: string, userId: string): Promise<{ success: true; deletedGroupId: string; deletedExpensesCount: number }> {
+        let result!: { success: true; deletedGroupId: string; deletedExpensesCount: number };
 
-        const group = this.db.groups[groupIndex];
-        if (!userId || group.createdBy !== userId) {
-            throw new ForbiddenException('Only group creator can delete this group');
-        }
+        await this.dbService.updateDb((db) => {
+            const groups = db.groups as Group[];
+            const expenses = db.expenses as Array<{ groupId?: string }>;
+            const groupIndex = groups.findIndex(group => group.id === id);
+            if (groupIndex === -1) {
+                throw new NotFoundException('Group not found');
+            }
 
-        this.db.groups.splice(groupIndex, 1);
+            const group = groups[groupIndex];
+            if (group.createdBy !== userId) {
+                throw new ForbiddenException('Only group creator can delete this group');
+            }
 
-        const previousExpenseCount = this.db.expenses.length;
-        this.db.expenses = this.db.expenses.filter(expense => expense.groupId !== id);
-        const deletedExpensesCount = previousExpenseCount - this.db.expenses.length;
+            groups.splice(groupIndex, 1);
 
-        this.saveDb();
+            const previousExpenseCount = expenses.length;
+            db.expenses = expenses.filter(expense => expense.groupId !== id);
+            const deletedExpensesCount = previousExpenseCount - db.expenses.length;
 
-        return {
-            success: true,
-            deletedGroupId: id,
-            deletedExpensesCount,
-        };
+            result = {
+                success: true,
+                deletedGroupId: id,
+                deletedExpensesCount,
+            };
+        });
+
+        return result;
     }
 }

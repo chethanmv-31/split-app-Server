@@ -15,19 +15,27 @@ import { UsersService, User } from './users.service';
 export class UsersController {
     constructor(private usersService: UsersService) { }
 
+    private sanitizeUser(user: User) {
+        const { password, passwordHash, ...safeUser } = user as User & { passwordHash?: string };
+        return safeUser;
+    }
+
     @Get()
     async findAll(@Query() query: Partial<User>) {
-        return this.usersService.findByQuery(query);
+        const users = await this.usersService.findByQuery(query);
+        return users.map((user) => this.sanitizeUser(user));
     }
 
     @Post()
     async create(@Body() user: Omit<User, 'id'>) {
-        return this.usersService.create(user);
+        const createdUser = await this.usersService.create(user);
+        return this.sanitizeUser(createdUser);
     }
 
     @Post('invite')
     async inviteUser(@Body() userData: { name: string; mobile?: string }) {
-        return this.usersService.createInvitedUser(userData);
+        const invitedUser = await this.usersService.createInvitedUser(userData);
+        return this.sanitizeUser(invitedUser);
     }
 
     @Post(':id/push-token')
@@ -36,7 +44,7 @@ export class UsersController {
         if (!user) {
             throw new NotFoundException(`User with ID ${id} not found`);
         }
-        return user;
+        return this.sanitizeUser(user);
     }
 
     @Patch(':id')
@@ -46,7 +54,7 @@ export class UsersController {
             if (!user) {
                 throw new NotFoundException(`User with ID ${id} not found`);
             }
-            return user;
+            return this.sanitizeUser(user);
         } catch (error: any) {
             if (error instanceof NotFoundException) {
                 throw error;

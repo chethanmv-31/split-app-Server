@@ -1,73 +1,40 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { Expense } from './expense.entity';
 import { UsersService } from '../users/users.service';
 import { PushNotificationService } from '../common/push-notifications.service';
+import { DbService } from '../common/db/db.service';
 
 @Injectable()
-export class ExpensesService implements OnModuleInit {
-    private readonly dbPath = path.join(process.cwd(), 'db.json');
-    private db: { users: any[], expenses: Expense[] } = { users: [], expenses: [] };
-
+export class ExpensesService {
     constructor(
         private usersService: UsersService,
-        private pushNotificationService: PushNotificationService
+        private pushNotificationService: PushNotificationService,
+        private dbService: DbService,
     ) { }
 
-    onModuleInit() {
-        this.loadDb();
+    async findAll(userId: string): Promise<Expense[]> {
+        const db = await this.dbService.readDb();
+        return (db.expenses as Expense[]).filter(
+            (expense) => expense.paidBy === userId || expense.splitBetween.includes(userId),
+        );
     }
 
-    private loadDb() {
-        try {
-            if (fs.existsSync(this.dbPath)) {
-                const data = fs.readFileSync(this.dbPath, 'utf8');
-                const parsed = JSON.parse(data);
-                this.db = {
-                    users: parsed.users || [],
-                    expenses: parsed.expenses || [],
-                };
-            } else {
-                this.saveDb();
+    async create(
+        expense: Omit<Expense, 'id' | 'paidBy'> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
+        createdBy: string,
+    ): Promise<Expense> {
+        if (expense.groupId) {
+            const db = await this.dbService.readDb();
+            const group = (db.groups as Array<{ id: string; members: string[] }>).find((item) => item.id === expense.groupId);
+            if (!group) {
+                throw new NotFoundException('Group not found');
             }
-        } catch (error) {
-            console.error('Error loading db.json:', error);
-            this.db = { users: [], expenses: [] };
-        }
-    }
-
-    private saveDb() {
-        try {
-            // Before saving, reload the latest state from disk to preserve other collections
-            let diskDb: any = { users: [], expenses: [] };
-            if (fs.existsSync(this.dbPath)) {
-                try {
-                    const data = fs.readFileSync(this.dbPath, 'utf8');
-                    diskDb = JSON.parse(data);
-                } catch (e) {
-                    console.error('Error reading db.json before save:', e);
-                }
+            if (!group.members.includes(createdBy)) {
+                throw new ForbiddenException('You are not a member of this group');
             }
-            // Merge: keep the current expenses state but preserve other fields from disk
-            const mergedDb = {
-                ...diskDb,
-                expenses: this.db.expenses, // Override with current expenses state
-            };
-            console.log(`[ExpensesService] Saving to db.json - users count: ${mergedDb.users?.length || 0}, expenses count: ${mergedDb.expenses.length}`);
-            fs.writeFileSync(this.dbPath, JSON.stringify(mergedDb, null, 2), 'utf8');
-            console.log(`[ExpensesService] Successfully saved to ${this.dbPath}`);
-        } catch (error) {
-            console.error('Error saving db.json:', error);
         }
-    }
 
-    async findAll(): Promise<Expense[]> {
-        return this.db.expenses;
-    }
-
-    async create(expense: Omit<Expense, 'id'> & { createdBy?: string; invitedUsers?: Array<{ name: string; mobile?: string }> }): Promise<Expense> {
-        // Create invited users if they're provided
         if (expense.invitedUsers && expense.invitedUsers.length > 0) {
             for (const invitedUserData of expense.invitedUsers) {
                 try {
@@ -81,7 +48,6 @@ export class ExpensesService implements OnModuleInit {
             }
         }
 
-        // Also check for any users in splitBetween that don't exist yet
         for (const userId of expense.splitBetween) {
             const userExists = await this.usersService.findOneById(userId);
             if (!userExists) {
@@ -91,16 +57,16 @@ export class ExpensesService implements OnModuleInit {
 
         const newExpense = {
             ...expense,
-            id: Math.random().toString(36).substring(2, 9),
+            paidBy: createdBy,
+            id: randomUUID(),
         } as Expense;
-        // Remove invitedUsers from the saved expense data
         delete (newExpense as any).invitedUsers;
-        
-        this.db.expenses.push(newExpense);
-        this.saveDb();
 
-        // Trigger push notifications, passing the creator ID
-        this.triggerPushNotifications(newExpense, expense.createdBy);
+        await this.dbService.updateDb((db) => {
+            (db.expenses as Expense[]).push(newExpense);
+        });
+
+        this.triggerPushNotifications(newExpense, createdBy);
 
         return newExpense;
     }
@@ -140,10 +106,19 @@ export class ExpensesService implements OnModuleInit {
     }
 
     async findByUserId(userId: string): Promise<Expense[]> {
-        return this.db.expenses.filter(e => e.paidBy === userId || e.splitBetween.includes(userId));
+        const db = await this.dbService.readDb();
+        return (db.expenses as Expense[]).filter(e => e.paidBy === userId || e.splitBetween.includes(userId));
     }
 
-    async findByGroupId(groupId: string): Promise<Expense[]> {
-        return this.db.expenses.filter(e => e.groupId === groupId);
+    async findByGroupId(groupId: string, userId: string): Promise<Expense[]> {
+        const db = await this.dbService.readDb();
+        const group = (db.groups as Array<{ id: string; members: string[] }>).find((item) => item.id === groupId);
+        if (!group) {
+            throw new NotFoundException('Group not found');
+        }
+        if (!group.members.includes(userId)) {
+            throw new ForbiddenException('You are not a member of this group');
+        }
+        return (db.expenses as Expense[]).filter(e => e.groupId === groupId);
     }
 }

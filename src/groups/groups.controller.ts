@@ -1,34 +1,37 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { GroupsService } from './groups.service';
 import { Group } from './group.entity';
+import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('groups')
+@UseGuards(JwtAuthGuard)
 export class GroupsController {
     constructor(private readonly groupsService: GroupsService) { }
 
     @Get()
-    async findAll(@Query('userId') userId?: string) {
-        return this.groupsService.findAll(userId);
+    async findAll(@Req() req: AuthenticatedRequest) {
+        return this.groupsService.findAll(req.user.userId);
     }
 
     @Post()
     async create(
-        @Body() groupData: Omit<Group, 'id' | 'createdAt'> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
+        @Req() req: AuthenticatedRequest,
+        @Body() groupData: Omit<Group, 'id' | 'createdAt' | 'createdBy'> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
     ) {
-        return this.groupsService.create(groupData);
+        return this.groupsService.create(groupData, req.user.userId);
     }
 
     @Patch(':id')
     async update(
+        @Req() req: AuthenticatedRequest,
         @Param('id') id: string,
         @Body() groupData: Partial<Pick<Group, 'name' | 'members'>> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
-        @Query('userId') userId?: string,
     ) {
-        return this.groupsService.update(id, groupData, userId);
+        return this.groupsService.update(id, groupData, req.user.userId);
     }
 
     @Delete(':id')
-    async remove(@Param('id') id: string, @Query('userId') userId?: string) {
-        return this.groupsService.remove(id, userId);
+    async remove(@Req() req: AuthenticatedRequest, @Param('id') id: string) {
+        return this.groupsService.remove(id, req.user.userId);
     }
 }

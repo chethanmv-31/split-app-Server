@@ -3,11 +3,13 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
 import { SmsService } from './sms.service';
+import { JwtTokenService } from './jwt-token.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Module({
   imports: [UsersModule],
-  providers: [AuthService, SmsService],
+  providers: [AuthService, SmsService, JwtTokenService, JwtAuthGuard],
   controllers: [AuthController],
-  exports: [AuthService],
+  exports: [AuthService, JwtTokenService, JwtAuthGuard],
 })
 export class AuthModule { }

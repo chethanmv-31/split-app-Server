@@ -1,6 +1,7 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Injectable } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
+import { DbService } from '../common/db/db.service';
 
 // Helper function to normalize phone numbers by removing +91 prefix
 const normalizePhone = (phone?: string): string | undefined => {
@@ -13,6 +14,7 @@ export interface User {
     name: string;
     email?: string;
     password?: string;
+    passwordHash?: string;
     mobile?: string;
     avatar?: string;
     pushToken?: string;
@@ -20,201 +22,220 @@ export interface User {
 }
 
 @Injectable()
-export class UsersService implements OnModuleInit {
-    private readonly dbPath = path.join(process.cwd(), 'db.json');
-    private db: { users: User[]; expenses: any[] } = { users: [], expenses: [] };
-
-    onModuleInit() {
-        this.loadDb();
-    }
-
-    private loadDb() {
-        try {
-            if (fs.existsSync(this.dbPath)) {
-                const data = fs.readFileSync(this.dbPath, 'utf8');
-                const parsedDb = JSON.parse(data);
-                this.db = {
-                    users: parsedDb.users || [],
-                    expenses: parsedDb.expenses || [],
-                    ...parsedDb, // Preserve any other fields
-                };
-            } else {
-                this.saveDb();
-            }
-        } catch (error) {
-            console.error('Error loading db.json:', error);
-            this.db = { users: [], expenses: [] };
-        }
-    }
-
-    private saveDb() {
-        try {
-            // Before saving, reload the latest state from disk to preserve other collections
-            let diskDb: any = { users: [], expenses: [] };
-            if (fs.existsSync(this.dbPath)) {
-                try {
-                    const data = fs.readFileSync(this.dbPath, 'utf8');
-                    diskDb = JSON.parse(data);
-                } catch (e) {
-                    console.error('Error reading db.json before save:', e);
-                }
-            }
-            // Merge: keep the current users state but preserve other fields from disk
-            const mergedDb = {
-                ...diskDb,
-                users: this.db.users, // Override with current users state
-            };
-            console.log(`[UsersService] Saving to db.json - users count: ${mergedDb.users.length}, expenses count: ${mergedDb.expenses?.length || 0}`);
-            fs.writeFileSync(this.dbPath, JSON.stringify(mergedDb, null, 2), 'utf8');
-            console.log(`[UsersService] Successfully saved to ${this.dbPath}`);
-        } catch (error) {
-            console.error('Error saving db.json:', error);
-        }
-    }
+export class UsersService {
+    constructor(private readonly dbService: DbService) { }
 
     async findAll(): Promise<User[]> {
-        return this.db.users;
+        const db = await this.dbService.readDb();
+        return db.users as User[];
     }
 
     async findOneByMobile(mobile: string): Promise<User | undefined> {
         const normalizedMobile = normalizePhone(mobile);
-        return this.db.users.find((user: User) => normalizePhone(user.mobile) === normalizedMobile);
+        const db = await this.dbService.readDb();
+        return (db.users as User[]).find((user: User) => normalizePhone(user.mobile) === normalizedMobile);
+    }
+
+    async findOneByEmail(email: string): Promise<User | undefined> {
+        const normalizedEmail = email.trim().toLowerCase();
+        const db = await this.dbService.readDb();
+        return (db.users as User[]).find((user: User) => user.email?.trim().toLowerCase() === normalizedEmail);
+    }
+
+    private async hashPassword(password: string): Promise<string> {
+        return bcrypt.hash(password, 10);
+    }
+
+    private async checkPassword(password: string, user: User): Promise<boolean> {
+        if (user.passwordHash) {
+            return bcrypt.compare(password, user.passwordHash);
+        }
+        if (user.password) {
+            return user.password === password;
+        }
+        return false;
+    }
+
+    async validateCredentials(email: string, password: string): Promise<User | undefined> {
+        const normalizedEmail = email.trim().toLowerCase();
+        let authenticatedUser: User | undefined;
+
+        await this.dbService.updateDb(async (db) => {
+            const users = db.users as User[];
+            const user = users.find((entry) => entry.email?.trim().toLowerCase() === normalizedEmail);
+            if (!user) {
+                return;
+            }
+            const isValid = await this.checkPassword(password, user);
+            if (!isValid) {
+                return;
+            }
+
+            if (!user.passwordHash && user.password) {
+                user.passwordHash = await this.hashPassword(user.password);
+                delete user.password;
+            }
+            authenticatedUser = user;
+        });
+
+        return authenticatedUser;
     }
 
     async findByQuery(query: Partial<User>): Promise<User[]> {
-        return this.db.users.filter((user: User) => {
-            return Object.entries(query).every(([key, value]) => {
+        const db = await this.dbService.readDb();
+        const safeQuery = { ...query };
+        delete safeQuery.password;
+        delete safeQuery.passwordHash;
+
+        return (db.users as User[]).filter((user: User) => {
+            return Object.entries(safeQuery).every(([key, value]) => {
                 if (value === undefined) return true;
+                if (key === 'password' || key === 'passwordHash') return false;
                 return user[key] === value;
             });
         });
     }
 
     async findOneById(id: string): Promise<User | undefined> {
-        return this.db.users.find((user: User) => user.id === id);
+        const db = await this.dbService.readDb();
+        return (db.users as User[]).find((user: User) => user.id === id);
     }
 
     async createInvitedUser(userData: { name: string; mobile?: string }): Promise<User> {
-        console.log(`[UsersService] Creating invited user:`, userData);
-        // Normalize the mobile number
         const normalizedMobile = normalizePhone(userData.mobile);
-        console.log(`[UsersService] Normalized mobile:`, normalizedMobile);
+        let invitedUser!: User;
 
-        // Check if ANY user with same mobile already exists (not just invited users)
-        if (normalizedMobile) {
-            const existingUser = this.db.users.find(
-                (u: User) => normalizePhone(u.mobile) === normalizedMobile
-            );
-            if (existingUser) {
-                // Update existing user (whether invited or registered)
-                existingUser.name = userData.name;
-                console.log(`[UsersService] Found existing user with this mobile, updating:`, existingUser);
-                this.saveDb();
-                console.log(`[UsersService] Updated user ${existingUser.id}`);
-                return existingUser;
+        await this.dbService.updateDb((db) => {
+            const users = db.users as User[];
+            if (normalizedMobile) {
+                const existingUser = users.find(
+                    (entry: User) => normalizePhone(entry.mobile) === normalizedMobile
+                );
+                if (existingUser) {
+                    existingUser.name = userData.name;
+                    invitedUser = existingUser;
+                    return;
+                }
             }
-        }
 
-        // Create new invited user (no email, no password)
-        const invitedUser = {
-            name: userData.name,
-            mobile: normalizedMobile,
-            id: Math.random().toString(36).substring(2, 9),
-        } as User;
-        console.log(`[UsersService] New invited user object:`, invitedUser);
-        this.db.users.push(invitedUser);
-        console.log(`[UsersService] Added to db.users, total users:`, this.db.users.length);
-        this.saveDb();
-        console.log(`[UsersService] Created invited user ${invitedUser.id}, current db:`, this.db);
+            invitedUser = {
+                name: userData.name,
+                mobile: normalizedMobile,
+                id: randomUUID(),
+            } as User;
+            users.push(invitedUser);
+        });
+
         return invitedUser;
     }
 
     async create(user: Omit<User, 'id'>): Promise<User> {
-        // Normalize the mobile number
         const normalizedMobile = normalizePhone(user.mobile);
+        const normalizedEmail = user.email?.trim().toLowerCase();
+        const passwordHash = user.password ? await this.hashPassword(user.password) : undefined;
+        let createdUser!: User;
 
-        // Check if there's an existing invited user with the same mobile
-        const existingInvitedUser = this.db.users.find(
-            (u: User) => !u.email && !u.password && (
-                (normalizedMobile && normalizePhone(u.mobile) === normalizedMobile)
-            )
-        );
-
-        if (existingInvitedUser) {
-            // Merge the invited user with the new signup data
-            if (user.email) existingInvitedUser.email = user.email;
-            if (user.password) existingInvitedUser.password = user.password;
-            if (user.name) existingInvitedUser.name = user.name;
-            if (normalizedMobile) existingInvitedUser.mobile = normalizedMobile;
-            // Keep the existing ID and pushToken if any
-            this.saveDb();
-            console.log(`[UsersService] Merged invited user ${existingInvitedUser.id} with signup data`);
-            return existingInvitedUser;
-        }
-
-        // Check if user with same email already exists
-        const existingUser = this.db.users.find(
-            (u: User) => u.email === user.email
-        );
-
-        if (existingUser) {
-            throw new Error('User with this email already exists');
-        }
-
-        // No invited user found, create a new user
-        const newUser = {
-            ...user,
-            mobile: normalizedMobile,
-            id: Math.random().toString(36).substring(2, 9),
-        } as User;
-        this.db.users.push(newUser);
-        this.saveDb();
-        return newUser;
-    }
-
-    async updatePushToken(id: string, pushToken: string): Promise<User | undefined> {
-        const user = await this.findOneById(id);
-        if (user) {
-            user.pushToken = pushToken;
-            this.saveDb();
-            return user;
-        }
-        return undefined;
-    }
-
-    async updateUser(id: string, updates: Partial<Omit<User, 'id'>>): Promise<User | undefined> {
-        const user = await this.findOneById(id);
-        if (!user) {
-            return undefined;
-        }
-
-        const normalizedEmail = updates.email?.trim().toLowerCase();
-        if (normalizedEmail) {
-            const existingUser = this.db.users.find(
-                (u: User) => u.id !== id && u.email?.trim().toLowerCase() === normalizedEmail
+        await this.dbService.updateDb((db) => {
+            const users = db.users as User[];
+            const existingInvitedUser = users.find(
+                (entry: User) => !entry.email && !entry.passwordHash && !entry.password && (
+                    (normalizedMobile && normalizePhone(entry.mobile) === normalizedMobile)
+                )
             );
+
+            if (existingInvitedUser) {
+                if (normalizedEmail) existingInvitedUser.email = normalizedEmail;
+                if (passwordHash) existingInvitedUser.passwordHash = passwordHash;
+                if (user.name) existingInvitedUser.name = user.name;
+                if (normalizedMobile) existingInvitedUser.mobile = normalizedMobile;
+                delete existingInvitedUser.password;
+                createdUser = existingInvitedUser;
+                return;
+            }
+
+            const existingUser = users.find(
+                (entry: User) => entry.email?.trim().toLowerCase() === normalizedEmail
+            );
+
             if (existingUser) {
                 throw new Error('User with this email already exists');
             }
-            user.email = normalizedEmail;
-        } else if (updates.email === '') {
-            user.email = undefined;
-        }
 
-        if (typeof updates.name === 'string') {
-            user.name = updates.name.trim();
-        }
+            const newUser = {
+                ...user,
+                email: normalizedEmail,
+                mobile: normalizedMobile,
+                password: undefined,
+                passwordHash,
+                id: randomUUID(),
+            } as User;
+            users.push(newUser);
+            createdUser = newUser;
+        });
 
-        if (typeof updates.mobile === 'string') {
-            const normalizedMobile = normalizePhone(updates.mobile);
-            user.mobile = normalizedMobile || undefined;
-        }
+        return createdUser;
+    }
 
-        if (typeof updates.avatar === 'string') {
-            user.avatar = updates.avatar.trim() || undefined;
-        }
+    async updatePushToken(id: string, pushToken: string): Promise<User | undefined> {
+        let updatedUser: User | undefined;
+        await this.dbService.updateDb((db) => {
+            const users = db.users as User[];
+            const user = users.find((entry: User) => entry.id === id);
+            if (!user) {
+                updatedUser = undefined;
+                return;
+            }
+            user.pushToken = pushToken;
+            updatedUser = user;
+        });
+        return updatedUser;
+    }
 
-        this.saveDb();
-        return user;
+    async updateUser(id: string, updates: Partial<Omit<User, 'id'>>): Promise<User | undefined> {
+        const normalizedEmail = updates.email?.trim().toLowerCase();
+        const normalizedMobile = typeof updates.mobile === 'string' ? normalizePhone(updates.mobile) : undefined;
+        let updatedUser: User | undefined;
+
+        await this.dbService.updateDb(async (db) => {
+            const users = db.users as User[];
+            const user = users.find((entry: User) => entry.id === id);
+            if (!user) {
+                updatedUser = undefined;
+                return;
+            }
+
+            if (normalizedEmail) {
+                const existingUser = users.find(
+                    (entry: User) => entry.id !== id && entry.email?.trim().toLowerCase() === normalizedEmail
+                );
+                if (existingUser) {
+                    throw new Error('User with this email already exists');
+                }
+                user.email = normalizedEmail;
+            } else if (updates.email === '') {
+                user.email = undefined;
+            }
+
+            if (typeof updates.name === 'string') {
+                user.name = updates.name.trim();
+            }
+
+            if (typeof updates.mobile === 'string') {
+                user.mobile = normalizedMobile || undefined;
+            }
+
+            if (typeof updates.avatar === 'string') {
+                user.avatar = updates.avatar.trim() || undefined;
+            }
+
+            if (typeof updates.password === 'string' && updates.password.trim()) {
+                user.passwordHash = await this.hashPassword(updates.password.trim());
+                delete user.password;
+            }
+
+            updatedUser = user;
+        });
+
+        return updatedUser;
     }
 }
