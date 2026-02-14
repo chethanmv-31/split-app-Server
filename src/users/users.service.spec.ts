@@ -53,4 +53,16 @@ describe('UsersService', () => {
     expect(db.users[0].password).toBeUndefined();
     expect(db.users[0].passwordHash).toBeDefined();
   });
+
+  it('matches phone numbers independent of plus-prefix formatting', async () => {
+    db.users.push({
+      id: 'u-1',
+      name: 'Phone User',
+      mobile: '+15551234567',
+    });
+
+    const user = await service.findOneByMobile('15551234567');
+
+    expect(user?.id).toBe('u-1');
+  });
 });

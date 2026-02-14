@@ -1,9 +1,10 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Expense } from './expense.entity';
 import { UsersService } from '../users/users.service';
 import { PushNotificationService } from '../common/push-notifications.service';
 import { DbService } from '../common/db/db.service';
+import { CreateExpenseDto } from './dto/create-expense.dto';
 
 @Injectable()
 export class ExpensesService {
@@ -21,9 +22,13 @@ export class ExpensesService {
     }
 
     async create(
-        expense: Omit<Expense, 'id' | 'paidBy'> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
+        expense: CreateExpenseDto,
         createdBy: string,
     ): Promise<Expense> {
+        if (!Array.isArray(expense.splitBetween) || expense.splitBetween.length === 0) {
+            throw new BadRequestException('splitBetween must contain at least one user');
+        }
+
         if (expense.groupId) {
             const db = await this.dbService.readDb();
             const group = (db.groups as Array<{ id: string; members: string[] }>).find((item) => item.id === expense.groupId);
@@ -32,6 +37,11 @@ export class ExpensesService {
             }
             if (!group.members.includes(createdBy)) {
                 throw new ForbiddenException('You are not a member of this group');
+            }
+
+            const nonMembers = expense.splitBetween.filter((userId) => !group.members.includes(userId));
+            if (nonMembers.length > 0) {
+                throw new ForbiddenException('All splitBetween users must be members of the group');
             }
         }
 
@@ -48,15 +58,17 @@ export class ExpensesService {
             }
         }
 
-        for (const userId of expense.splitBetween) {
+        const uniqueSplitUsers = Array.from(new Set(expense.splitBetween));
+        for (const userId of uniqueSplitUsers) {
             const userExists = await this.usersService.findOneById(userId);
             if (!userExists) {
-                console.warn(`User ${userId} in splitBetween does not exist`);
+                throw new NotFoundException(`User ${userId} not found`);
             }
         }
 
         const newExpense = {
-            ...expense,
+            ...(expense as Omit<Expense, 'id' | 'paidBy'>),
+            splitBetween: uniqueSplitUsers,
             paidBy: createdBy,
             id: randomUUID(),
         } as Expense;

@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { GroupsService } from './groups.service';
-import { Group } from './group.entity';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CreateGroupDto, UpdateGroupDto } from './dto/group.dto';
 
 @Controller('groups')
 @UseGuards(JwtAuthGuard)
@@ -16,7 +16,7 @@ export class GroupsController {
     @Post()
     async create(
         @Req() req: AuthenticatedRequest,
-        @Body() groupData: Omit<Group, 'id' | 'createdAt' | 'createdBy'> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
+        @Body() groupData: CreateGroupDto,
     ) {
         return this.groupsService.create(groupData, req.user.userId);
     }
@@ -25,7 +25,7 @@ export class GroupsController {
     async update(
         @Req() req: AuthenticatedRequest,
         @Param('id') id: string,
-        @Body() groupData: Partial<Pick<Group, 'name' | 'members'>> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
+        @Body() groupData: UpdateGroupDto,
     ) {
         return this.groupsService.update(id, groupData, req.user.userId);
     }

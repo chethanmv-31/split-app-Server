@@ -10,6 +10,7 @@ import {
     BadRequestException,
 } from '@nestjs/common';
 import { UsersService, User } from './users.service';
+import { CreateUserDto, InviteUserDto, UpdateUserDto } from './dto/user.dto';
 
 @Controller('users')
 export class UsersController {
@@ -27,13 +28,13 @@ export class UsersController {
     }
 
     @Post()
-    async create(@Body() user: Omit<User, 'id'>) {
-        const createdUser = await this.usersService.create(user);
+    async create(@Body() user: CreateUserDto) {
+        const createdUser = await this.usersService.create(user as unknown as Omit<User, 'id'>);
         return this.sanitizeUser(createdUser);
     }
 
     @Post('invite')
-    async inviteUser(@Body() userData: { name: string; mobile?: string }) {
+    async inviteUser(@Body() userData: InviteUserDto) {
         const invitedUser = await this.usersService.createInvitedUser(userData);
         return this.sanitizeUser(invitedUser);
     }
@@ -48,9 +49,9 @@ export class UsersController {
     }
 
     @Patch(':id')
-    async updateUser(@Param('id') id: string, @Body() updates: Partial<Omit<User, 'id'>>) {
+    async updateUser(@Param('id') id: string, @Body() updates: UpdateUserDto) {
         try {
-            const user = await this.usersService.updateUser(id, updates);
+            const user = await this.usersService.updateUser(id, updates as unknown as Partial<Omit<User, 'id'>>);
             if (!user) {
                 throw new NotFoundException(`User with ID ${id} not found`);
             }

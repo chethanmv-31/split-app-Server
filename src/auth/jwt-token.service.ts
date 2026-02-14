@@ -7,8 +7,8 @@ export interface JwtPayload {
   userId: string;
   email?: string;
   mobile?: string;
-  exp: number;
-  iat: number;
+  exp?: number;
+  iat?: number;
 }
 
 @Injectable()
@@ -17,10 +17,11 @@ export class JwtTokenService {
   private readonly expiresInSeconds: number;
 
   constructor(private readonly configService: ConfigService) {
-    this.secret =
-      this.configService.get<string>('JWT_SECRET') ||
-      this.configService.get<string>('AUTH_SECRET') ||
-      'split-app-dev-secret-change-me';
+    const secret = this.configService.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('JWT_SECRET is required');
+    }
+    this.secret = secret;
     this.expiresInSeconds = Number(
       this.configService.get<string>('JWT_EXPIRES_IN_SECONDS') || 60 * 60 * 24 * 7,
     );
@@ -50,9 +51,9 @@ export class JwtTokenService {
       .replace(/\//g, '_');
   }
 
-  sign(payload: Omit<JwtPayload, 'exp' | 'iat'>): string {
+  sign(payload: JwtPayload): string {
     const now = Math.floor(Date.now() / 1000);
-    const fullPayload: JwtPayload = {
+    const fullPayload = {
       ...payload,
       iat: now,
       exp: now + this.expiresInSeconds,
@@ -72,13 +73,7 @@ export class JwtTokenService {
 
     const [header, body, signature] = segments;
     const expectedSignature = this.signSegment(`${header}.${body}`);
-
-    const expectedBuffer = Buffer.from(expectedSignature);
-    const actualBuffer = Buffer.from(signature);
-    if (
-      expectedBuffer.length !== actualBuffer.length ||
-      !crypto.timingSafeEqual(expectedBuffer, actualBuffer)
-    ) {
+    if (expectedSignature !== signature) {
       throw new UnauthorizedException('Invalid token signature');
     }
 

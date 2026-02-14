@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { HttpStatus } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { SmsService } from './sms.service';
@@ -62,5 +63,18 @@ describe('AuthService', () => {
 
     expect(result.success).toBe(true);
     expect((result as any).otp).toBeUndefined();
+  });
+
+  it('locks login attempts after repeated failures', async () => {
+    usersService.validateCredentials.mockResolvedValue(undefined);
+
+    for (let i = 0; i < 5; i += 1) {
+      await expect(service.login('a@example.com', 'bad')).rejects.toBeDefined();
+    }
+
+    await expect(service.login('a@example.com', 'bad')).rejects.toHaveProperty(
+      'status',
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
   });
 });

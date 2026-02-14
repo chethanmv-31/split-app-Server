@@ -3,10 +3,20 @@ import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { DbService } from '../common/db/db.service';
 
-// Helper function to normalize phone numbers by removing +91 prefix
 const normalizePhone = (phone?: string): string | undefined => {
     if (!phone) return phone;
-    return phone.replace(/^\+91/, '').trim();
+    const cleaned = phone.trim().replace(/[^\d+]/g, '');
+    if (!cleaned) return undefined;
+    if (cleaned.startsWith('+')) {
+        return `+${cleaned.slice(1).replace(/\D/g, '')}`;
+    }
+    return cleaned.replace(/\D/g, '');
+};
+
+const phoneLookupKey = (phone?: string): string | undefined => {
+    const normalized = normalizePhone(phone);
+    if (!normalized) return undefined;
+    return normalized.replace(/\D/g, '');
 };
 
 export interface User {
@@ -31,9 +41,9 @@ export class UsersService {
     }
 
     async findOneByMobile(mobile: string): Promise<User | undefined> {
-        const normalizedMobile = normalizePhone(mobile);
+        const normalizedMobile = phoneLookupKey(mobile);
         const db = await this.dbService.readDb();
-        return (db.users as User[]).find((user: User) => normalizePhone(user.mobile) === normalizedMobile);
+        return (db.users as User[]).find((user: User) => phoneLookupKey(user.mobile) === normalizedMobile);
     }
 
     async findOneByEmail(email: string): Promise<User | undefined> {
@@ -109,7 +119,7 @@ export class UsersService {
             const users = db.users as User[];
             if (normalizedMobile) {
                 const existingUser = users.find(
-                    (entry: User) => normalizePhone(entry.mobile) === normalizedMobile
+                    (entry: User) => phoneLookupKey(entry.mobile) === phoneLookupKey(normalizedMobile)
                 );
                 if (existingUser) {
                     existingUser.name = userData.name;
@@ -139,7 +149,7 @@ export class UsersService {
             const users = db.users as User[];
             const existingInvitedUser = users.find(
                 (entry: User) => !entry.email && !entry.passwordHash && !entry.password && (
-                    (normalizedMobile && normalizePhone(entry.mobile) === normalizedMobile)
+                    (normalizedMobile && phoneLookupKey(entry.mobile) === phoneLookupKey(normalizedMobile))
                 )
             );
 

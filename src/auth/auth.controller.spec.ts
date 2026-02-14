@@ -28,7 +28,7 @@ describe('AuthController', () => {
       user: { id: 'user-1', name: 'A' },
     });
 
-    const result = await controller.login('a@example.com', 'secret');
+    const result = await controller.login({ email: 'a@example.com', password: 'secret' } as any);
 
     expect(result.accessToken).toBe('mock-token');
     expect(result.user.id).toBe('user-1');
@@ -37,7 +37,7 @@ describe('AuthController', () => {
   it('sendOtp response does not include otp', async () => {
     authService.sendOtp.mockResolvedValue({ success: true, message: 'OTP sent successfully' });
 
-    const result = await controller.sendOtp('9999999999');
+    const result = await controller.sendOtp({ mobile: '9999999999' } as any);
 
     expect(result.success).toBe(true);
     expect((result as any).otp).toBeUndefined();

@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { Group } from './group.entity';
 import { UsersService } from '../users/users.service';
 import { DbService } from '../common/db/db.service';
+import { CreateGroupDto, UpdateGroupDto } from './dto/group.dto';
 
 @Injectable()
 export class GroupsService {
@@ -17,7 +18,7 @@ export class GroupsService {
     }
 
     async create(
-        data: Omit<Group, 'id' | 'createdAt' | 'createdBy'> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
+        data: CreateGroupDto,
         userId: string,
     ): Promise<Group> {
         const trimmedName = data.name?.trim();
@@ -47,6 +48,13 @@ export class GroupsService {
         }
 
         const uniqueMembers = Array.from(new Set(memberIds));
+        for (const memberId of uniqueMembers) {
+            const member = await this.usersService.findOneById(memberId);
+            if (!member) {
+                throw new NotFoundException(`Member ${memberId} not found`);
+            }
+        }
+
         const newGroup: Group = {
             id: randomUUID(),
             name: trimmedName,
@@ -64,7 +72,7 @@ export class GroupsService {
 
     async update(
         id: string,
-        data: Partial<Pick<Group, 'name' | 'members'>> & { invitedUsers?: Array<{ name: string; mobile?: string }> },
+        data: UpdateGroupDto,
         userId: string,
     ): Promise<Group> {
         if (data.invitedUsers && data.invitedUsers.length > 0) {
@@ -112,6 +120,13 @@ export class GroupsService {
             }
 
             group.members = Array.from(new Set(nextMembers.filter(Boolean)));
+
+            for (const memberId of group.members) {
+                const member = db.users.find((user: { id: string }) => user.id === memberId);
+                if (!member) {
+                    throw new NotFoundException(`Member ${memberId} not found`);
+                }
+            }
             updatedGroup = group;
         });
 
