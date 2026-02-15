@@ -14,7 +14,7 @@ export class SmsService {
         const authToken = this.getEnvValue('TWILIO_AUTH_TOKEN');
         this.fromNumber = this.getEnvValue('TWILIO_PHONE_NUMBER');
         this.defaultCountryCode = this.normalizeCountryCode(
-            this.getEnvValue('TWILIO_DEFAULT_COUNTRY_CODE') ?? '+91',
+            this.getEnvValue('TWILIO_DEFAULT_COUNTRY_CODE') ?? '+1',
         );
 
         if (accountSid && authToken && this.fromNumber) {
@@ -36,7 +36,7 @@ export class SmsService {
 
     private normalizeCountryCode(countryCode: string): string {
         const digits = countryCode.replace(/\D/g, '');
-        return `+${digits || '91'}`;
+        return `+${digits || '1'}`;
     }
 
     private formatToNumber(to: string): string {

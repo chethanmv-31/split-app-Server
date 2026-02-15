@@ -1,18 +1,33 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { Injectable } from '@nestjs/common';
+import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
+import { SupabaseService } from '../common/supabase/supabase.service';
 
-// Helper function to normalize phone numbers by removing +91 prefix
 const normalizePhone = (phone?: string): string | undefined => {
     if (!phone) return phone;
-    return phone.replace(/^\+91/, '').trim();
+    const cleaned = phone.trim().replace(/[^\d+]/g, '');
+    if (!cleaned) return undefined;
+    if (cleaned.startsWith('+')) {
+        return `+${cleaned.slice(1).replace(/\D/g, '')}`;
+    }
+    return cleaned.replace(/\D/g, '');
 };
+
+const phoneLookupKey = (phone?: string): string | undefined => {
+    const normalized = normalizePhone(phone);
+    if (!normalized) return undefined;
+    return normalized.replace(/\D/g, '');
+};
+
+const ALLOWED_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 
 export interface User {
     id: string;
     name: string;
     email?: string;
     password?: string;
+    passwordHash?: string;
     mobile?: string;
     avatar?: string;
     pushToken?: string;
@@ -20,201 +35,270 @@ export interface User {
 }
 
 @Injectable()
-export class UsersService implements OnModuleInit {
-    private readonly dbPath = path.join(process.cwd(), 'db.json');
-    private db: { users: User[]; expenses: any[] } = { users: [], expenses: [] };
+export class UsersService {
+    constructor(
+        private readonly supabaseService: SupabaseService,
+    ) { }
 
-    onModuleInit() {
-        this.loadDb();
+    private async assertSupabaseOk(response: Response): Promise<void> {
+        if (response.ok) return;
+        const details = await response.text();
+        throw new Error(`Supabase users query failed: ${response.status} ${details}`);
     }
 
-    private loadDb() {
-        try {
-            if (fs.existsSync(this.dbPath)) {
-                const data = fs.readFileSync(this.dbPath, 'utf8');
-                const parsedDb = JSON.parse(data);
-                this.db = {
-                    users: parsedDb.users || [],
-                    expenses: parsedDb.expenses || [],
-                    ...parsedDb, // Preserve any other fields
-                };
-            } else {
-                this.saveDb();
-            }
-        } catch (error) {
-            console.error('Error loading db.json:', error);
-            this.db = { users: [], expenses: [] };
-        }
+    private mapRowToUser(row: any): User {
+        return {
+            id: row.id,
+            name: row.name,
+            email: row.email || undefined,
+            mobile: row.mobile || undefined,
+            passwordHash: row.password_hash || undefined,
+            avatar: row.avatar || undefined,
+            pushToken: row.push_token || undefined,
+        };
     }
 
-    private saveDb() {
-        try {
-            // Before saving, reload the latest state from disk to preserve other collections
-            let diskDb: any = { users: [], expenses: [] };
-            if (fs.existsSync(this.dbPath)) {
-                try {
-                    const data = fs.readFileSync(this.dbPath, 'utf8');
-                    diskDb = JSON.parse(data);
-                } catch (e) {
-                    console.error('Error reading db.json before save:', e);
-                }
-            }
-            // Merge: keep the current users state but preserve other fields from disk
-            const mergedDb = {
-                ...diskDb,
-                users: this.db.users, // Override with current users state
-            };
-            console.log(`[UsersService] Saving to db.json - users count: ${mergedDb.users.length}, expenses count: ${mergedDb.expenses?.length || 0}`);
-            fs.writeFileSync(this.dbPath, JSON.stringify(mergedDb, null, 2), 'utf8');
-            console.log(`[UsersService] Successfully saved to ${this.dbPath}`);
-        } catch (error) {
-            console.error('Error saving db.json:', error);
-        }
+    private toInsertRow(user: Partial<User> & { id: string; name: string }) {
+        return {
+            id: user.id,
+            name: user.name,
+            email: user.email || null,
+            mobile: user.mobile || null,
+            password_hash: user.passwordHash || null,
+            avatar: user.avatar || null,
+            push_token: user.pushToken || null,
+        };
+    }
+
+    private async fetchAllUsersFromSupabase(): Promise<User[]> {
+        const response = await this.supabaseService.rest('users?select=*');
+        await this.assertSupabaseOk(response);
+        const rows = await response.json();
+        return Array.isArray(rows) ? rows.map((row) => this.mapRowToUser(row)) : [];
     }
 
     async findAll(): Promise<User[]> {
-        return this.db.users;
+        return this.fetchAllUsersFromSupabase();
     }
 
     async findOneByMobile(mobile: string): Promise<User | undefined> {
-        const normalizedMobile = normalizePhone(mobile);
-        return this.db.users.find((user: User) => normalizePhone(user.mobile) === normalizedMobile);
+        const normalizedMobile = phoneLookupKey(mobile);
+        const users = await this.findAll();
+        return users.find((user: User) => phoneLookupKey(user.mobile) === normalizedMobile);
     }
 
-    async findByQuery(query: Partial<User>): Promise<User[]> {
-        return this.db.users.filter((user: User) => {
-            return Object.entries(query).every(([key, value]) => {
+    async findOneByEmail(email: string): Promise<User | undefined> {
+        const normalizedEmail = email.trim().toLowerCase();
+        const users = await this.findAll();
+        return users.find((user: User) => user.email?.trim().toLowerCase() === normalizedEmail);
+    }
+
+    private async hashPassword(password: string): Promise<string> {
+        return bcrypt.hash(password, 10);
+    }
+
+    private async maybeUploadAvatarForSupabase(id: string, avatar?: string): Promise<string | undefined> {
+        if (!avatar) return avatar;
+        const trimmed = avatar.trim();
+        if (!trimmed) return undefined;
+        if (!trimmed.startsWith('data:')) return trimmed;
+
+        const mimeMatch = trimmed.match(/^data:([^;]+);base64,/);
+        const mimeType = mimeMatch?.[1] || 'image/jpeg';
+        const extension = mimeType === 'image/png'
+            ? 'png'
+            : mimeType === 'image/webp'
+                ? 'webp'
+                : 'jpg';
+        const objectPath = `${id}/avatar-${Date.now()}.${extension}`;
+        return this.supabaseService.uploadBase64Object({
+            bucket: 'avatars',
+            objectPath,
+            dataUrl: trimmed,
+            upsert: true,
+            allowedMimeTypes: ALLOWED_IMAGE_MIME_TYPES,
+            maxBytes: MAX_AVATAR_BYTES,
+        });
+    }
+
+    private async checkPassword(password: string, user: User): Promise<boolean> {
+        if (!user.passwordHash) return false;
+        return bcrypt.compare(password, user.passwordHash);
+    }
+
+    async validateCredentials(email: string, password: string): Promise<User | undefined> {
+        const user = await this.findOneByEmail(email);
+        if (!user) return undefined;
+        const isValid = await this.checkPassword(password, user);
+        if (!isValid) return undefined;
+        return user;
+    }
+
+    async findByQuery(query: Partial<User> | Record<string, unknown>): Promise<User[]> {
+        const users = await this.findAll();
+        const safeQuery: Record<string, unknown> = { ...query };
+        delete safeQuery.password;
+        delete safeQuery.passwordHash;
+
+        return users.filter((user: User) => {
+            return Object.entries(safeQuery).every(([key, value]) => {
                 if (value === undefined) return true;
+                if (key === 'password' || key === 'passwordHash') return false;
                 return user[key] === value;
             });
         });
     }
 
     async findOneById(id: string): Promise<User | undefined> {
-        return this.db.users.find((user: User) => user.id === id);
+        const users = await this.findAll();
+        return users.find((user: User) => user.id === id);
     }
 
     async createInvitedUser(userData: { name: string; mobile?: string }): Promise<User> {
-        console.log(`[UsersService] Creating invited user:`, userData);
-        // Normalize the mobile number
         const normalizedMobile = normalizePhone(userData.mobile);
-        console.log(`[UsersService] Normalized mobile:`, normalizedMobile);
-
-        // Check if ANY user with same mobile already exists (not just invited users)
+        const users = await this.fetchAllUsersFromSupabase();
         if (normalizedMobile) {
-            const existingUser = this.db.users.find(
-                (u: User) => normalizePhone(u.mobile) === normalizedMobile
+            const existingUser = users.find(
+                (entry: User) => phoneLookupKey(entry.mobile) === phoneLookupKey(normalizedMobile),
             );
             if (existingUser) {
-                // Update existing user (whether invited or registered)
-                existingUser.name = userData.name;
-                console.log(`[UsersService] Found existing user with this mobile, updating:`, existingUser);
-                this.saveDb();
-                console.log(`[UsersService] Updated user ${existingUser.id}`);
-                return existingUser;
+                const patchRes = await this.supabaseService.rest(`users?id=eq.${encodeURIComponent(existingUser.id)}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ name: userData.name }),
+                });
+                await this.assertSupabaseOk(patchRes);
+                return { ...existingUser, name: userData.name };
             }
         }
 
-        // Create new invited user (no email, no password)
-        const invitedUser = {
+        const invitedUser: User = {
             name: userData.name,
             mobile: normalizedMobile,
-            id: Math.random().toString(36).substring(2, 9),
+            id: randomUUID(),
         } as User;
-        console.log(`[UsersService] New invited user object:`, invitedUser);
-        this.db.users.push(invitedUser);
-        console.log(`[UsersService] Added to db.users, total users:`, this.db.users.length);
-        this.saveDb();
-        console.log(`[UsersService] Created invited user ${invitedUser.id}, current db:`, this.db);
+
+        const insertRes = await this.supabaseService.rest('users', {
+            method: 'POST',
+            body: JSON.stringify(this.toInsertRow(invitedUser)),
+        });
+        await this.assertSupabaseOk(insertRes);
         return invitedUser;
     }
 
     async create(user: Omit<User, 'id'>): Promise<User> {
-        // Normalize the mobile number
         const normalizedMobile = normalizePhone(user.mobile);
-
-        // Check if there's an existing invited user with the same mobile
-        const existingInvitedUser = this.db.users.find(
-            (u: User) => !u.email && !u.password && (
-                (normalizedMobile && normalizePhone(u.mobile) === normalizedMobile)
-            )
+        const normalizedEmail = user.email?.trim().toLowerCase();
+        const passwordHash = user.password ? await this.hashPassword(user.password) : undefined;
+        const users = await this.fetchAllUsersFromSupabase();
+        const existingInvitedUser = users.find(
+            (entry: User) => !entry.email && !entry.passwordHash && (
+                (normalizedMobile && phoneLookupKey(entry.mobile) === phoneLookupKey(normalizedMobile))
+            ),
         );
 
         if (existingInvitedUser) {
-            // Merge the invited user with the new signup data
-            if (user.email) existingInvitedUser.email = user.email;
-            if (user.password) existingInvitedUser.password = user.password;
-            if (user.name) existingInvitedUser.name = user.name;
-            if (normalizedMobile) existingInvitedUser.mobile = normalizedMobile;
-            // Keep the existing ID and pushToken if any
-            this.saveDb();
-            console.log(`[UsersService] Merged invited user ${existingInvitedUser.id} with signup data`);
-            return existingInvitedUser;
+            const patchBody = {
+                ...(normalizedEmail ? { email: normalizedEmail } : {}),
+                ...(passwordHash ? { password_hash: passwordHash } : {}),
+                ...(user.name ? { name: user.name } : {}),
+                ...(normalizedMobile ? { mobile: normalizedMobile } : {}),
+            };
+            const patchRes = await this.supabaseService.rest(`users?id=eq.${encodeURIComponent(existingInvitedUser.id)}`, {
+                method: 'PATCH',
+                body: JSON.stringify(patchBody),
+            });
+            await this.assertSupabaseOk(patchRes);
+            return {
+                ...existingInvitedUser,
+                ...(normalizedEmail ? { email: normalizedEmail } : {}),
+                ...(passwordHash ? { passwordHash } : {}),
+                ...(user.name ? { name: user.name } : {}),
+                ...(normalizedMobile ? { mobile: normalizedMobile } : {}),
+            };
         }
 
-        // Check if user with same email already exists
-        const existingUser = this.db.users.find(
-            (u: User) => u.email === user.email
-        );
-
+        const existingUser = users.find((entry: User) => entry.email?.trim().toLowerCase() === normalizedEmail);
         if (existingUser) {
             throw new Error('User with this email already exists');
         }
 
-        // No invited user found, create a new user
         const newUser = {
             ...user,
+            email: normalizedEmail,
             mobile: normalizedMobile,
-            id: Math.random().toString(36).substring(2, 9),
+            password: undefined,
+            passwordHash,
+            id: randomUUID(),
         } as User;
-        this.db.users.push(newUser);
-        this.saveDb();
+
+        const insertRes = await this.supabaseService.rest('users', {
+            method: 'POST',
+            body: JSON.stringify(this.toInsertRow(newUser)),
+        });
+        await this.assertSupabaseOk(insertRes);
         return newUser;
     }
 
     async updatePushToken(id: string, pushToken: string): Promise<User | undefined> {
-        const user = await this.findOneById(id);
-        if (user) {
-            user.pushToken = pushToken;
-            this.saveDb();
-            return user;
-        }
-        return undefined;
+        const existing = await this.findOneById(id);
+        if (!existing) return undefined;
+        const patchRes = await this.supabaseService.rest(`users?id=eq.${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ push_token: pushToken }),
+        });
+        await this.assertSupabaseOk(patchRes);
+        return { ...existing, pushToken };
     }
 
     async updateUser(id: string, updates: Partial<Omit<User, 'id'>>): Promise<User | undefined> {
-        const user = await this.findOneById(id);
-        if (!user) {
-            return undefined;
-        }
-
         const normalizedEmail = updates.email?.trim().toLowerCase();
+        const normalizedMobile = typeof updates.mobile === 'string' ? normalizePhone(updates.mobile) : undefined;
+        const users = await this.fetchAllUsersFromSupabase();
+        const user = users.find((entry: User) => entry.id === id);
+        if (!user) return undefined;
+
         if (normalizedEmail) {
-            const existingUser = this.db.users.find(
-                (u: User) => u.id !== id && u.email?.trim().toLowerCase() === normalizedEmail
+            const existingUser = users.find(
+                (entry: User) => entry.id !== id && entry.email?.trim().toLowerCase() === normalizedEmail,
             );
             if (existingUser) {
                 throw new Error('User with this email already exists');
             }
-            user.email = normalizedEmail;
+        }
+
+        const patchBody: Record<string, string | null> = {};
+        if (normalizedEmail) {
+            patchBody.email = normalizedEmail;
         } else if (updates.email === '') {
-            user.email = undefined;
+            patchBody.email = null;
         }
-
         if (typeof updates.name === 'string') {
-            user.name = updates.name.trim();
+            patchBody.name = updates.name.trim();
         }
-
         if (typeof updates.mobile === 'string') {
-            const normalizedMobile = normalizePhone(updates.mobile);
-            user.mobile = normalizedMobile || undefined;
+            patchBody.mobile = normalizedMobile || null;
         }
-
         if (typeof updates.avatar === 'string') {
-            user.avatar = updates.avatar.trim() || undefined;
+            const uploadedAvatar = await this.maybeUploadAvatarForSupabase(id, updates.avatar);
+            patchBody.avatar = uploadedAvatar || null;
+        }
+        if (typeof updates.password === 'string' && updates.password.trim()) {
+            patchBody.password_hash = await this.hashPassword(updates.password.trim());
         }
 
-        this.saveDb();
-        return user;
+        const patchRes = await this.supabaseService.rest(`users?id=eq.${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify(patchBody),
+        });
+        await this.assertSupabaseOk(patchRes);
+
+        return {
+            ...user,
+            ...(patchBody.name !== undefined ? { name: patchBody.name || user.name } : {}),
+            ...(patchBody.email !== undefined ? { email: patchBody.email || undefined } : {}),
+            ...(patchBody.mobile !== undefined ? { mobile: patchBody.mobile || undefined } : {}),
+            ...(patchBody.avatar !== undefined ? { avatar: patchBody.avatar || undefined } : {}),
+            ...(patchBody.password_hash !== undefined ? { passwordHash: patchBody.password_hash || undefined } : {}),
+        };
     }
 }

@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { GroupsModule } from './groups/groups.module';
+import { SupabaseModule } from './common/supabase/supabase.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { GroupsModule } from './groups/groups.module';
     AuthModule,
     ExpensesModule,
     GroupsModule,
+    SupabaseModule,
   ],
   controllers: [AppController],
   providers: [AppService],
