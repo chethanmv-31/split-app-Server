@@ -57,13 +57,8 @@ export class UsersService {
     }
 
     private async checkPassword(password: string, user: User): Promise<boolean> {
-        if (user.passwordHash) {
-            return bcrypt.compare(password, user.passwordHash);
-        }
-        if (user.password) {
-            return user.password === password;
-        }
-        return false;
+        if (!user.passwordHash) return false;
+        return bcrypt.compare(password, user.passwordHash);
     }
 
     async validateCredentials(email: string, password: string): Promise<User | undefined> {
@@ -81,19 +76,15 @@ export class UsersService {
                 return;
             }
 
-            if (!user.passwordHash && user.password) {
-                user.passwordHash = await this.hashPassword(user.password);
-                delete user.password;
-            }
             authenticatedUser = user;
         });
 
         return authenticatedUser;
     }
 
-    async findByQuery(query: Partial<User>): Promise<User[]> {
+    async findByQuery(query: Partial<User> | Record<string, unknown>): Promise<User[]> {
         const db = await this.dbService.readDb();
-        const safeQuery = { ...query };
+        const safeQuery: Record<string, unknown> = { ...query };
         delete safeQuery.password;
         delete safeQuery.passwordHash;
 

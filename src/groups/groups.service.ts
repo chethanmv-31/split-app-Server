@@ -29,16 +29,12 @@ export class GroupsService {
         const memberIds = [...data.members];
         if (data.invitedUsers && data.invitedUsers.length > 0) {
             for (const invitedUserData of data.invitedUsers) {
-                try {
-                    const invitedUser = await this.usersService.createInvitedUser({
-                        name: invitedUserData.name,
-                        mobile: invitedUserData.mobile,
-                    });
-                    if (!memberIds.includes(invitedUser.id)) {
-                        memberIds.push(invitedUser.id);
-                    }
-                } catch (error) {
-                    console.error('Error creating invited user during group creation:', error);
+                const invitedUser = await this.usersService.createInvitedUser({
+                    name: invitedUserData.name,
+                    mobile: invitedUserData.mobile,
+                });
+                if (!memberIds.includes(invitedUser.id)) {
+                    memberIds.push(invitedUser.id);
                 }
             }
         }
@@ -78,15 +74,11 @@ export class GroupsService {
         if (data.invitedUsers && data.invitedUsers.length > 0) {
             const pendingInvitedUsers: string[] = [];
             for (const invitedUserData of data.invitedUsers) {
-                try {
-                    const invitedUser = await this.usersService.createInvitedUser({
-                        name: invitedUserData.name,
-                        mobile: invitedUserData.mobile,
-                    });
-                    pendingInvitedUsers.push(invitedUser.id);
-                } catch (error) {
-                    console.error('Error creating invited user during group update:', error);
-                }
+                const invitedUser = await this.usersService.createInvitedUser({
+                    name: invitedUserData.name,
+                    mobile: invitedUserData.mobile,
+                });
+                pendingInvitedUsers.push(invitedUser.id);
             }
             data.members = [...(data.members || []), ...pendingInvitedUsers];
         }

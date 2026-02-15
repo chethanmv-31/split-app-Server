@@ -1,4 +1,5 @@
 import {
+    ForbiddenException,
     Controller,
     Get,
     Post,
@@ -8,9 +9,12 @@ import {
     NotFoundException,
     Patch,
     BadRequestException,
+    Req,
+    UseGuards,
 } from '@nestjs/common';
 import { UsersService, User } from './users.service';
-import { CreateUserDto, InviteUserDto, UpdateUserDto } from './dto/user.dto';
+import { CreateUserDto, FindUsersQueryDto, InviteUserDto, UpdatePushTokenDto, UpdateUserDto } from './dto/user.dto';
+import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('users')
 export class UsersController {
@@ -22,8 +26,9 @@ export class UsersController {
     }
 
     @Get()
-    async findAll(@Query() query: Partial<User>) {
-        const users = await this.usersService.findByQuery(query);
+    @UseGuards(JwtAuthGuard)
+    async findAll(@Query() query: FindUsersQueryDto) {
+        const users = await this.usersService.findByQuery(query as unknown as Partial<User>);
         return users.map((user) => this.sanitizeUser(user));
     }
 
@@ -34,14 +39,23 @@ export class UsersController {
     }
 
     @Post('invite')
+    @UseGuards(JwtAuthGuard)
     async inviteUser(@Body() userData: InviteUserDto) {
         const invitedUser = await this.usersService.createInvitedUser(userData);
         return this.sanitizeUser(invitedUser);
     }
 
     @Post(':id/push-token')
-    async updatePushToken(@Param('id') id: string, @Body('pushToken') pushToken: string) {
-        const user = await this.usersService.updatePushToken(id, pushToken);
+    @UseGuards(JwtAuthGuard)
+    async updatePushToken(
+        @Req() req: AuthenticatedRequest,
+        @Param('id') id: string,
+        @Body() body: UpdatePushTokenDto,
+    ) {
+        if (req.user.userId !== id) {
+            throw new ForbiddenException('You can only update your own push token');
+        }
+        const user = await this.usersService.updatePushToken(id, body.pushToken);
         if (!user) {
             throw new NotFoundException(`User with ID ${id} not found`);
         }
@@ -49,7 +63,15 @@ export class UsersController {
     }
 
     @Patch(':id')
-    async updateUser(@Param('id') id: string, @Body() updates: UpdateUserDto) {
+    @UseGuards(JwtAuthGuard)
+    async updateUser(
+        @Req() req: AuthenticatedRequest,
+        @Param('id') id: string,
+        @Body() updates: UpdateUserDto,
+    ) {
+        if (req.user.userId !== id) {
+            throw new ForbiddenException('You can only update your own profile');
+        }
         try {
             const user = await this.usersService.updateUser(id, updates as unknown as Partial<Omit<User, 'id'>>);
             if (!user) {

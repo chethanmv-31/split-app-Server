@@ -19,12 +19,11 @@ export interface AuthResult {
 
 @Injectable()
 export class AuthService {
-    private otpStore: Record<string, { otp: string; expires: number; attempts: number }> = {};
-
     private typeSafeAuthState() {
         return {
             loginAttempts: {} as Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>,
             otpSendAttempts: {} as Record<string, { count: number; firstAttemptAt: number }>,
+            otpStore: {} as Record<string, { otp: string; expires: number; attempts: number }>,
         };
     }
 
@@ -38,6 +37,7 @@ export class AuthService {
     private async updateAuthState<T>(mutator: (authState: {
         loginAttempts: Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>;
         otpSendAttempts: Record<string, { count: number; firstAttemptAt: number }>;
+        otpStore: Record<string, { otp: string; expires: number; attempts: number }>;
     }) => T | Promise<T>): Promise<T> {
         return this.dbService.updateDb(async (db) => {
             if (!db.authState || typeof db.authState !== 'object') {
@@ -52,9 +52,14 @@ export class AuthService {
                 db.authState.otpSendAttempts = {};
             }
 
+            if (!db.authState.otpStore || typeof db.authState.otpStore !== 'object') {
+                db.authState.otpStore = {};
+            }
+
             const authState = db.authState as {
                 loginAttempts: Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>;
                 otpSendAttempts: Record<string, { count: number; firstAttemptAt: number }>;
+                otpStore: Record<string, { otp: string; expires: number; attempts: number }>;
             };
 
             return mutator(authState);
@@ -179,16 +184,20 @@ export class AuthService {
         }
 
         const otp = randomInt(1000, 10000).toString();
-        this.otpStore[mobile] = {
-            otp,
-            expires: Date.now() + 5 * 60 * 1000, // 5 minutes
-            attempts: 0,
-        };
+        await this.updateAuthState((authState) => {
+            authState.otpStore[mobile] = {
+                otp,
+                expires: Date.now() + 5 * 60 * 1000, // 5 minutes
+                attempts: 0,
+            };
+        });
 
         const message = `Your Split App OTP is: ${otp}. Valid for 5 minutes.`;
         const smsSent = await this.smsService.sendSms(mobile, message);
         if (!smsSent) {
-            delete this.otpStore[mobile];
+            await this.updateAuthState((authState) => {
+                delete authState.otpStore[mobile];
+            });
             throw new BadRequestException('Failed to send OTP SMS. Please verify Twilio settings and number format.');
         }
 
@@ -196,27 +205,42 @@ export class AuthService {
     }
 
     async verifyOtp(mobile: string, otp: string) {
-        const record = this.otpStore[mobile];
+        const result = await this.updateAuthState((authState) => {
+            const record = authState.otpStore[mobile];
+            if (!record) {
+                return { ok: false as const, reason: 'missing' as const };
+            }
 
-        if (!record) {
+            if (Date.now() > record.expires) {
+                delete authState.otpStore[mobile];
+                return { ok: false as const, reason: 'expired' as const };
+            }
+
+            if (record.otp !== otp) {
+                record.attempts += 1;
+                if (record.attempts >= 5) {
+                    delete authState.otpStore[mobile];
+                    return { ok: false as const, reason: 'attempts_exceeded' as const };
+                }
+                return { ok: false as const, reason: 'invalid' as const };
+            }
+
+            delete authState.otpStore[mobile];
+            return { ok: true as const };
+        });
+
+        if (!result.ok && result.reason === 'missing') {
             throw new BadRequestException('OTP not found or expired');
         }
-
-        if (Date.now() > record.expires) {
-            delete this.otpStore[mobile];
+        if (!result.ok && result.reason === 'expired') {
             throw new BadRequestException('OTP expired');
         }
-
-        if (record.otp !== otp) {
-            record.attempts += 1;
-            if (record.attempts >= 5) {
-                delete this.otpStore[mobile];
-                throw new BadRequestException('OTP verification attempts exceeded');
-            }
+        if (!result.ok && result.reason === 'attempts_exceeded') {
+            throw new BadRequestException('OTP verification attempts exceeded');
+        }
+        if (!result.ok) {
             throw new BadRequestException('Invalid OTP');
         }
-
-        delete this.otpStore[mobile];
         const user = await this.usersService.findOneByMobile(mobile);
         if (!user) {
             throw new UnauthorizedException('Mobile number not found');

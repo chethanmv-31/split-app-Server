@@ -9,6 +9,7 @@ export interface AppDb {
   authState?: {
     loginAttempts?: Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>;
     otpSendAttempts?: Record<string, { count: number; firstAttemptAt: number }>;
+    otpStore?: Record<string, { otp: string; expires: number; attempts: number }>;
   };
   [key: string]: any;
 }
@@ -21,7 +22,7 @@ export class DbService {
     users: [],
     expenses: [],
     groups: [],
-    authState: { loginAttempts: {}, otpSendAttempts: {} },
+    authState: { loginAttempts: {}, otpSendAttempts: {}, otpStore: {} },
   };
   private writeQueue: Promise<void> = Promise.resolve();
 
@@ -51,6 +52,10 @@ export class DbService {
         otpSendAttempts:
           parsed?.authState && typeof parsed.authState.otpSendAttempts === 'object'
             ? parsed.authState.otpSendAttempts
+            : {},
+        otpStore:
+          parsed?.authState && typeof parsed.authState.otpStore === 'object'
+            ? parsed.authState.otpStore
             : {},
       },
     };

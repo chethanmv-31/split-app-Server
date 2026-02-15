@@ -25,6 +25,8 @@ export class ExpensesService {
         expense: CreateExpenseDto,
         createdBy: string,
     ): Promise<Expense> {
+        const payerId = expense.paidBy?.trim() || createdBy;
+
         if (!Array.isArray(expense.splitBetween) || expense.splitBetween.length === 0) {
             throw new BadRequestException('splitBetween must contain at least one user');
         }
@@ -38,6 +40,9 @@ export class ExpensesService {
             if (!group.members.includes(createdBy)) {
                 throw new ForbiddenException('You are not a member of this group');
             }
+            if (!group.members.includes(payerId)) {
+                throw new ForbiddenException('Payer must be a member of this group');
+            }
 
             const nonMembers = expense.splitBetween.filter((userId) => !group.members.includes(userId));
             if (nonMembers.length > 0) {
@@ -47,14 +52,10 @@ export class ExpensesService {
 
         if (expense.invitedUsers && expense.invitedUsers.length > 0) {
             for (const invitedUserData of expense.invitedUsers) {
-                try {
-                    await this.usersService.createInvitedUser({
-                        name: invitedUserData.name,
-                        mobile: invitedUserData.mobile,
-                    });
-                } catch (error) {
-                    console.error('Error creating invited user during expense creation:', error);
-                }
+                await this.usersService.createInvitedUser({
+                    name: invitedUserData.name,
+                    mobile: invitedUserData.mobile,
+                });
             }
         }
 
@@ -65,11 +66,15 @@ export class ExpensesService {
                 throw new NotFoundException(`User ${userId} not found`);
             }
         }
+        const payerExists = await this.usersService.findOneById(payerId);
+        if (!payerExists) {
+            throw new NotFoundException(`User ${payerId} not found`);
+        }
 
         const newExpense = {
             ...(expense as Omit<Expense, 'id' | 'paidBy'>),
             splitBetween: uniqueSplitUsers,
-            paidBy: createdBy,
+            paidBy: payerId,
             id: randomUUID(),
         } as Expense;
         delete (newExpense as any).invitedUsers;
