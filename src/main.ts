@@ -5,6 +5,18 @@ import { json, urlencoded } from 'express';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
+  const useSupabase = process.env.USE_SUPABASE === 'true';
+  if (!useSupabase) {
+    throw new Error('USE_SUPABASE must be true. Local db.json mode is disabled.');
+  }
+  if (useSupabase) {
+    const requiredVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'];
+    const missingVars = requiredVars.filter((name) => !(process.env[name] || '').trim());
+    if (missingVars.length > 0) {
+      throw new Error(`USE_SUPABASE=true but missing required env vars: ${missingVars.join(', ')}`);
+    }
+  }
+
   const app = await NestFactory.create(AppModule);
   const bodyLimit = process.env.BODY_LIMIT ?? '1mb';
   const allowedOrigins = (process.env.CORS_ORIGINS ?? '')

@@ -4,18 +4,14 @@ import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import { SmsService } from './sms.service';
 import { JwtTokenService } from './jwt-token.service';
-import { DbService } from '../common/db/db.service';
 
 describe('AuthService', () => {
   let service: AuthService;
   let usersService: { validateCredentials: jest.Mock; findOneByMobile: jest.Mock };
   let smsService: { sendSms: jest.Mock };
   let jwtTokenService: { sign: jest.Mock };
-  let dbService: { updateDb: jest.Mock };
-  let db: any;
 
   beforeEach(async () => {
-    db = { users: [], expenses: [], groups: [], authState: { loginAttempts: {}, otpSendAttempts: {} } };
     usersService = {
       validateCredentials: jest.fn(),
       findOneByMobile: jest.fn(),
@@ -26,9 +22,6 @@ describe('AuthService', () => {
     jwtTokenService = {
       sign: jest.fn().mockReturnValue('mock-token'),
     };
-    dbService = {
-      updateDb: jest.fn(async (mutator: any) => mutator(db)),
-    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -36,7 +29,6 @@ describe('AuthService', () => {
         { provide: UsersService, useValue: usersService },
         { provide: SmsService, useValue: smsService },
         { provide: JwtTokenService, useValue: jwtTokenService },
-        { provide: DbService, useValue: dbService },
       ],
     }).compile();
 

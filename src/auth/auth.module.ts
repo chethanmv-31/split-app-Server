@@ -5,10 +5,9 @@ import { UsersModule } from '../users/users.module';
 import { SmsService } from './sms.service';
 import { JwtTokenService } from './jwt-token.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { DbModule } from '../common/db/db.module';
 
 @Module({
-  imports: [forwardRef(() => UsersModule), DbModule],
+  imports: [forwardRef(() => UsersModule)],
   providers: [AuthService, SmsService, JwtTokenService, JwtAuthGuard],
   controllers: [AuthController],
   exports: [AuthService, JwtTokenService, JwtAuthGuard],

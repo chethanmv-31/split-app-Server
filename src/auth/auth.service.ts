@@ -9,7 +9,6 @@ import { randomInt } from 'crypto';
 import { User, UsersService } from '../users/users.service';
 import { SmsService } from './sms.service';
 import { JwtTokenService } from './jwt-token.service';
-import { DbService } from '../common/db/db.service';
 
 export interface AuthResult {
     success: true;
@@ -19,6 +18,8 @@ export interface AuthResult {
 
 @Injectable()
 export class AuthService {
+    private authState = this.typeSafeAuthState();
+
     private typeSafeAuthState() {
         return {
             loginAttempts: {} as Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>,
@@ -31,7 +32,6 @@ export class AuthService {
         private usersService: UsersService,
         private smsService: SmsService,
         private jwtTokenService: JwtTokenService,
-        private dbService: DbService,
     ) { }
 
     private async updateAuthState<T>(mutator: (authState: {
@@ -39,31 +39,19 @@ export class AuthService {
         otpSendAttempts: Record<string, { count: number; firstAttemptAt: number }>;
         otpStore: Record<string, { otp: string; expires: number; attempts: number }>;
     }) => T | Promise<T>): Promise<T> {
-        return this.dbService.updateDb(async (db) => {
-            if (!db.authState || typeof db.authState !== 'object') {
-                db.authState = this.typeSafeAuthState();
-            }
-
-            if (!db.authState.loginAttempts || typeof db.authState.loginAttempts !== 'object') {
-                db.authState.loginAttempts = {};
-            }
-
-            if (!db.authState.otpSendAttempts || typeof db.authState.otpSendAttempts !== 'object') {
-                db.authState.otpSendAttempts = {};
-            }
-
-            if (!db.authState.otpStore || typeof db.authState.otpStore !== 'object') {
-                db.authState.otpStore = {};
-            }
-
-            const authState = db.authState as {
-                loginAttempts: Record<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>;
-                otpSendAttempts: Record<string, { count: number; firstAttemptAt: number }>;
-                otpStore: Record<string, { otp: string; expires: number; attempts: number }>;
-            };
-
-            return mutator(authState);
-        });
+        if (!this.authState || typeof this.authState !== 'object') {
+            this.authState = this.typeSafeAuthState();
+        }
+        if (!this.authState.loginAttempts || typeof this.authState.loginAttempts !== 'object') {
+            this.authState.loginAttempts = {};
+        }
+        if (!this.authState.otpSendAttempts || typeof this.authState.otpSendAttempts !== 'object') {
+            this.authState.otpSendAttempts = {};
+        }
+        if (!this.authState.otpStore || typeof this.authState.otpStore !== 'object') {
+            this.authState.otpStore = {};
+        }
+        return mutator(this.authState);
     }
 
     private sanitizeUser(user: User): Omit<User, 'password' | 'passwordHash'> {

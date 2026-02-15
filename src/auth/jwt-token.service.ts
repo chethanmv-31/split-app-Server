@@ -85,4 +85,45 @@ export class JwtTokenService {
 
     return payload;
   }
+
+  async verifyAccessToken(token: string): Promise<JwtPayload> {
+    try {
+      return this.verify(token);
+    } catch (localError) {
+      const url = this.configService.get<string>('SUPABASE_URL')?.trim();
+      const anonKey = this.configService.get<string>('SUPABASE_ANON_KEY')?.trim();
+      const serviceRoleKey = this.configService.get<string>('SUPABASE_SERVICE_ROLE_KEY')?.trim();
+      const apiKey = anonKey || serviceRoleKey;
+      if (!url || !apiKey) {
+        throw localError;
+      }
+
+      try {
+        const response = await fetch(`${url}/auth/v1/user`, {
+          headers: {
+            apikey: apiKey,
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new UnauthorizedException('Invalid token');
+        }
+
+        const user = await response.json();
+        if (!user?.id || typeof user.id !== 'string') {
+          throw new UnauthorizedException('Invalid token');
+        }
+
+        return {
+          sub: user.id,
+          userId: user.id,
+          email: typeof user.email === 'string' ? user.email : undefined,
+          mobile: typeof user.phone === 'string' ? user.phone : undefined,
+        };
+      } catch {
+        throw new UnauthorizedException('Invalid token');
+      }
+    }
+  }
 }

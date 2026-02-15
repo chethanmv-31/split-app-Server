@@ -4,10 +4,10 @@ import { ExpensesController } from './expenses.controller';
 import { UsersModule } from '../users/users.module';
 import { PushNotificationService } from '../common/push-notifications.service';
 import { AuthModule } from '../auth/auth.module';
-import { DbModule } from '../common/db/db.module';
+import { SupabaseModule } from '../common/supabase/supabase.module';
 
 @Module({
-    imports: [UsersModule, AuthModule, DbModule],
+    imports: [UsersModule, AuthModule, SupabaseModule],
     providers: [ExpensesService, PushNotificationService],
     controllers: [ExpensesController],
     exports: [ExpensesService],

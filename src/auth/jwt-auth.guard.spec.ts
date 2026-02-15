@@ -11,14 +11,14 @@ describe('JwtAuthGuard', () => {
       }),
     }) as any;
 
-  it('throws when bearer token is missing', () => {
-    const guard = new JwtAuthGuard({ verify: jest.fn() } as any);
-    expect(() => guard.canActivate(createContext())).toThrow(UnauthorizedException);
+  it('throws when bearer token is missing', async () => {
+    const guard = new JwtAuthGuard({ verifyAccessToken: jest.fn() } as any);
+    await expect(guard.canActivate(createContext())).rejects.toThrow(UnauthorizedException);
   });
 
-  it('attaches user payload when token is valid', () => {
-    const verify = jest.fn().mockReturnValue({ userId: 'user-1' });
-    const guard = new JwtAuthGuard({ verify } as any);
+  it('attaches user payload when token is valid', async () => {
+    const verifyAccessToken = jest.fn().mockResolvedValue({ userId: 'user-1' });
+    const guard = new JwtAuthGuard({ verifyAccessToken } as any);
     const request = { headers: { authorization: 'Bearer token-abc' } } as any;
     const context = {
       switchToHttp: () => ({
@@ -26,10 +26,10 @@ describe('JwtAuthGuard', () => {
       }),
     } as any;
 
-    const allowed = guard.canActivate(context);
+    const allowed = await guard.canActivate(context);
 
     expect(allowed).toBe(true);
-    expect(verify).toHaveBeenCalledWith('token-abc');
+    expect(verifyAccessToken).toHaveBeenCalledWith('token-abc');
     expect(request.user.userId).toBe('user-1');
   });
 });
